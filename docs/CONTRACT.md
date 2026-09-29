@@ -1,0 +1,11 @@
+# Integration contract
+
+Shared data and types owned by root: packages/shared/data.ts, types.ts, rules.ts. Read these, request additions. Client imports ../../.. /packages/shared.
+
+Colyseus 0.18 core + @colyseus/sdk 0.18.4 (installed under the colyseus.js alias). Room `island`. HTTP POST /api/session {nickname,token?} -> {token,profile}; token random opaque secret in localStorage; joinOrCreate('island',{token}). Server port 2567. GET /api/health. GET /api/ledger Bearer token -> LedgerEntry[]. GET /api/matches -> MatchEntry[]. GET /api/leaderboard -> array nickname,wins,losses.
+Server sends `world`: WorldSnapshot at 10Hz, `profile`: Profile on join/change, `event`: GameEvent, `error`: {message}. Client sends `command`: Command. All mutations requestId UUID; move does not need ID.
+Commands: move {dx,dz,sprint,yaw}, starter {species}, attack {target,slot:0..3}, tame {target,item:'capsule'|'prism'}, buy {item,quantity}, use {item}, heal {}, team {ids:string[]}, deploy {id:string|null}, evolve {id}, claim {quest}, interact {place}, duel {target}, duelAccept {id}, duelReject {id}, duelCancel {id}, surrender {}, queue {join:boolean}, emote {value}. Server enforces location for heal/shop/team via PLACES; UI can show menus anywhere but explain travel.
+
+Renderer owned by world agent: apps/client/src/world.ts plus related render modules and public/assets. Export async createWorld(canvas:HTMLCanvasElement, callbacks:{onTarget:(id:string)=>void,onMove:(dx:number,dz:number,sprint:boolean,yaw:number)=>void,onInteract:()=>void,onAbility:(slot:number)=>void,onTame:()=>void}):Promise<GameWorld>. GameWorld methods setSnapshot(snapshot,selfId), setProfile(profile), setPlaying(bool), setTarget(id|null), setSettings({quality?,sensitivity?,reducedMotion?,cameraShake?,keybinds?}), getPosition():{x,z}, dispose(). May export interface. World animates title vista before playing. Movement callback 20Hz, prevent while document has dialogs or focused inputs. API extra inspect mode acceptable. Need coordinate world shared.
+
+UI agent owns apps/client/src/main.ts, style.css, audio.ts, apps/client/index.html. Calls createWorld. No React. Premium finished interface integrated with real in-engine scene and fully working menus. Agent can add UI helpers under ui/. Other files root-owned.

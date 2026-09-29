@@ -1,0 +1,62 @@
+{
+  "name": "pokemon-dollars",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,client \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "vite --host 0.0.0.0",
+    "dev:server": "tsx watch apps/server/src/index.ts",
+    "start": "tsx apps/server/src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "vite build",
+    "heroku-postbuild": "npm run typecheck && npm run build",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "db:migrate": "tsx apps/server/src/migrate.ts",
+    "db:seed": "tsx apps/server/src/migrate.ts",
+    "check:format": "prettier --check .",
+    "test:load": "tsx scripts/load-test.ts",
+    "test:network": "tsx scripts/network-test.ts",
+    "test:restart": "tsx scripts/restart-test.ts",
+    "test:connectivity": "tsx scripts/connectivity-test.ts",
+    "test:gameplay": "tsx scripts/server-gameplay-test.ts",
+    "test:economy": "tsx scripts/economy-simulation.ts",
+    "test:visual": "tsx scripts/rpg-visual-test.ts",
+    "test:render": "node scripts/render-benchmark.mjs",
+    "test:story": "tsx scripts/story-gameplay-test.ts",
+    "test:first-session": "tsx scripts/rpg-gameplay-test.ts",
+    "test:rooms": "tsx scripts/room-routing-test.ts",
+    "test:combat": "tsx scripts/combat-timing-test.ts",
+    "test:feel": "playwright test tests/browser/feel.spec.ts",
+    "test:combat-systems": "tsx scripts/combat-systems-test.ts"
+  },
+  "dependencies": {
+    "@babylonjs/core": "9.28.0",
+    "@babylonjs/loaders": "9.28.0",
+    "@colyseus/core": "0.18.17",
+    "@colyseus/ws-transport": "0.18.4",
+    "colyseus.js": "npm:@colyseus/sdk@0.18.4",
+    "compression": "1.8.2",
+    "dotenv": "16.6.1",
+    "express": "4.22.3",
+    "pg": "8.16.3",
+    "tsx": "4.20.5",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/compression": "1.8.1",
+    "@types/express": "4.17.23",
+    "@types/node": "24.5.2",
+    "@types/pg": "8.15.5",
+    "concurrently": "9.2.4",
+    "prettier": "3.6.2",
+    "typescript": "5.9.2",
+    "vite": "7.3.6",
+    "vitest": "4.1.11"
+  }
+}

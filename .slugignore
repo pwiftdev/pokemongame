@@ -1,0 +1,10 @@
+/.claude
+/evidence
+/assets/source
+/docs
+/tests
+/scripts
+/.env
+/.env.*
+/test-results
+/playwright-report

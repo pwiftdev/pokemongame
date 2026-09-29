@@ -1,0 +1,7 @@
+node_modules
+dist
+package-lock.json
+assets
+apps/client/public/assets
+evidence
+Pokemon-Dollars-Astra-Build-Prompt.md
