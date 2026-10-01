@@ -11,7 +11,7 @@ import { AURAS, type AuraId } from "../../../../packages/shared/combat-rules";
 import { abilityIcon } from "./ability-icons";
 import { escape as esc } from "./icons";
 
-function slot(
+export function slot(
   action: string,
   icon: string,
   tooltip: string,
@@ -19,7 +19,7 @@ function slot(
   name: string,
   options: { cls?: string; attributes?: string; badge?: string } = {},
 ) {
-  return `<button class="ability ${options.cls ?? ""}" data-action="${action}" data-tooltip="${tooltip}" aria-label="${esc(name)}" ${options.attributes ?? ""}><span class="slot-face">${abilityIcon(icon)}<span class="sweep"></span><span class="cooldown"></span>${options.badge ?? ""}<kbd>${key}</kbd></span><span class="ability-name">${esc(name)}</span></button>`;
+  return `<button class="ability ${options.cls ?? ""}" data-action="${action}" data-tooltip="${tooltip}" aria-label="${esc(name)}" ${options.attributes ?? ""}><span class="slot-face">${abilityIcon(icon)}<span class="sweep"></span><span class="cooldown"></span>${options.badge ?? ""}<kbd title="${esc(key)}">${key === "SPACE" ? "SPC" : key}</kbd></span><span class="ability-name">${esc(name)}</span></button>`;
 }
 export function actionBarMarkup(
   classId: ClassId,

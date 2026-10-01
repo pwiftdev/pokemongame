@@ -1,0 +1,43 @@
+WORLD OF POKEMONS — MODULAR CHARACTER ASSETS
+
+All source assets listed below are CC0 1.0 Universal:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+QUATERNIUS — Universal Base Characters, free Standard edition
+https://quaternius.com/packs/universalbasecharacters.html
+https://quaternius.itch.io/universal-base-characters
+Used: Superhero Male/Female bases; eyes and eyebrows; Buzzed, BuzzedFemale,
+SimpleParted, Long, Buns and Beard hairstyles. The free subset is two bases
+and five hairstyles plus a beard, not the entire paid/source collection.
+
+QUATERNIUS — Modular Character Outfits: Fantasy, free Standard edition
+https://quaternius.com/packs/modularcharacteroutfitsfantasy.html
+Used: Male/Female Ranger and Peasant clothing and hands.
+
+QUATERNIUS — Universal Animation Library 1 and 2, free Standard editions
+https://quaternius.com/packs/universalanimationlibrary.html
+https://quaternius.com/packs/universalanimationlibrary2.html
+Used: idle, locomotion, jumping, hit, death, spellcasting, sword and shield clips.
+
+Base and UAL1 downloaded from the author's free itch.io Standard downloads.
+Outfits and UAL2 obtained from the source-pack mirror:
+https://github.com/agentkaerf/FreeModels/tree/db3df04d1e4714298a09510b26fb6de6645138a2
+The original author pages above establish authorship and CC0 license.
+
+KAY LOUSBERG — KayKit Adventurers
+https://kaylousberg.itch.io/kaykit-adventurers
+Used: existing packaged sword, shield, staff, daggers and axe meshes.
+
+GAME ADAPTATIONS
+Heads extracted from the complete bases; modular clothing, hair and head skins
+mapped to a shared rig. Animations mapped to the game's existing motion system.
+Textures resized to at most 512px and converted to WebP; unused data pruned.
+Human, Elf, Dwarf and Orc variations use derived proportions, head geometry,
+ear shapes, skin palettes and added tusks. Face/jaw/nose adjustments, beard
+length, eyebrow thickness and material colors are game-side adaptations.
+These race variants are not separate authored Quaternius race models.
+
+Assembly: scripts/acquire-characters.py and scripts/character-gltf.py.
+Source checksums: scripts/data/character-sources.json.
+Shipped asset checksums and byte sizes: ASSET_MANIFEST.json.
+No paid model pack, ongoing asset subscription or external runtime asset host.

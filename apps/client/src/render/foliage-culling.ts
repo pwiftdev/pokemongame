@@ -20,8 +20,16 @@ export function createFoliageCulling() {
           focus.z - bounds.maximumWorld.z,
         );
         const distance = Math.hypot(dx, dz);
-        const density = Math.min(1, Math.max(0, (110 - distance) / 74));
-        const visible = lowQuality ? 0 : Math.floor(count * density * density);
+        const density = Math.min(
+          1,
+          Math.max(
+            0,
+            ((lowQuality ? 65 : 110) - distance) / (lowQuality ? 36 : 74),
+          ),
+        );
+        const visible = Math.floor(
+          count * density * density * (lowQuality ? 0.18 : 1),
+        );
         mesh.setEnabled(visible > 0);
         mesh.thinInstanceCount = visible;
       }

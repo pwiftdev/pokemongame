@@ -32,7 +32,8 @@
     "test:rooms": "tsx scripts/room-routing-test.ts",
     "test:combat": "tsx scripts/combat-timing-test.ts",
     "test:feel": "playwright test tests/browser/feel.spec.ts",
-    "test:combat-systems": "tsx scripts/combat-systems-test.ts"
+    "test:combat-systems": "tsx scripts/combat-systems-test.ts",
+    "test:pokemon": "tsx scripts/pokemon-systems-test.ts"
   },
   "dependencies": {
     "@babylonjs/core": "9.28.0",

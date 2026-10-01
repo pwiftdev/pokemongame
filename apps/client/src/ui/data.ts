@@ -12,20 +12,26 @@ function entries(name: string): Entry[] {
     }));
   return [];
 }
-export const species = () => entries("SPECIES");
-export const abilities = () => entries("ABILITIES");
-export const items = () => entries("ITEMS");
-export const places = () => entries("PLACES");
+const catalogs = {
+  species: entries("SPECIES"),
+  abilities: entries("ABILITIES"),
+  items: entries("ITEMS"),
+  places: entries("PLACES"),
+};
+const index = (values: Entry[]) =>
+  new Map(values.map((entry) => [String(entry.id), entry]));
+const speciesById = index(catalogs.species),
+  abilitiesById = index(catalogs.abilities),
+  itemsById = index(catalogs.items);
+export const species = () => catalogs.species;
+export const abilities = () => catalogs.abilities;
+export const items = () => catalogs.items;
+export const places = () => catalogs.places;
 export const findSpecies = (id: string) =>
-  species().find((entry) => entry.id === id) || {
-    id,
-    name: id,
-    element: "leaf",
-  };
+  speciesById.get(id) || { id, name: id, element: "leaf" };
 export const findAbility = (id: string) =>
-  abilities().find((entry) => entry.id === id) || { id, name: id, cooldown: 2 };
-export const findItem = (id: string) =>
-  items().find((entry) => entry.id === id) || { id, name: id };
+  abilitiesById.get(id) || { id, name: id, cooldown: 2 };
+export const findItem = (id: string) => itemsById.get(id) || { id, name: id };
 export const brand = (source.BRAND || {}) as Entry;
 export const title = String(brand.title || brand.name || "Pokemon Dollars");
 export const currency = String(brand.currency || brand.currencyLabel || "PD");

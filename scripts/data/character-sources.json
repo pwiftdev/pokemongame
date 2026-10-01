@@ -1,0 +1,120 @@
+{
+  "revision": "db3df04d1e4714298a09510b26fb6de6645138a2",
+  "downloads": [
+    {
+      "file": "universal-base.zip",
+      "bytes": 128968391,
+      "sha256": "fdbf1804c90dfc1ea03e992bff7da2dfd1a79318e13270a660180f9308455f40"
+    },
+    {
+      "file": "animations.zip",
+      "bytes": 15904933,
+      "sha256": "cc73fc4e495b82958207316596317a3f40b9fa38065bde1027937452da537724"
+    },
+    {
+      "file": "UAL2_Standard.glb",
+      "bytes": 8061600,
+      "sha256": "9a0ffda4931f934f13fb584002c51673723b03f9655a581167e7e5dae744f086"
+    },
+    {
+      "file": "outfits/Female_Peasant.bin",
+      "bytes": 658600,
+      "sha256": "40eccaa2bd545c893142ef7dca0866ea8f20df3a86c67c5615024bc4fe546e83"
+    },
+    {
+      "file": "outfits/Female_Peasant.gltf",
+      "bytes": 29529,
+      "sha256": "43ba98058b933cae9acbde0f3ef8c3dda4ba9f69f338606f9d87666d9efffb31"
+    },
+    {
+      "file": "outfits/Female_Ranger.bin",
+      "bytes": 1959556,
+      "sha256": "d015964ba0a26eee9c9d2ea6f07aa660bba88aa536cf8bb6b67944b9e97c46df"
+    },
+    {
+      "file": "outfits/Female_Ranger.gltf",
+      "bytes": 45461,
+      "sha256": "9b98b2ae6af3b4a1ec22bf8928b939e0751f08b25b636de82bfa7364fb34d3e1"
+    },
+    {
+      "file": "outfits/Male_Peasant.bin",
+      "bytes": 674764,
+      "sha256": "e46bde795f7b69b351d322d7a5628e07131cfb48ed0afe366293f1b3f530433c"
+    },
+    {
+      "file": "outfits/Male_Peasant.gltf",
+      "bytes": 32681,
+      "sha256": "8f5a6cf6c1cf96e0a0f8e1a861b4245d42b7f88d44e5076da3d48f3fc52f4e76"
+    },
+    {
+      "file": "outfits/Male_Ranger.bin",
+      "bytes": 1746884,
+      "sha256": "5bbb0d42cb324c6c27ce00417e68a876d92978f07d161f83590f0d7c0570eff6"
+    },
+    {
+      "file": "outfits/Male_Ranger.gltf",
+      "bytes": 41447,
+      "sha256": "e1033a212332d84d98c19bc4927c621635478d0aa15d13c79da68d3ba9e0196f"
+    },
+    {
+      "file": "outfits/T_Peasant_BaseColor.png",
+      "bytes": 5055760,
+      "sha256": "a43635628d95571cd62fd4db0cc3a6ea32778b2bc02f242dda224c89d07f1ade"
+    },
+    {
+      "file": "outfits/T_Peasant_Normal.png",
+      "bytes": 14110336,
+      "sha256": "7598fa7b63e46fd4dac29708bf5a81e05eb9a67280f7b13c61e28a9110eeb679"
+    },
+    {
+      "file": "outfits/T_Peasant_ORM.png",
+      "bytes": 9903835,
+      "sha256": "e1932f5f91104afca89c501416a5fec09069b8552734237fc09045fabc4ca9b4"
+    },
+    {
+      "file": "outfits/T_Ranger_BaseColor.png",
+      "bytes": 6630927,
+      "sha256": "846ef2170b04ee584ad83bb8a1e86dab57a9a43b1193204505912c274d949925"
+    },
+    {
+      "file": "outfits/T_Ranger_Normal.png",
+      "bytes": 12713653,
+      "sha256": "dd64da2af3180f0c8f0b721cfc5f0d2720c351b97da8285c6cf49e7717c84147"
+    },
+    {
+      "file": "outfits/T_Ranger_ORM.png",
+      "bytes": 10792085,
+      "sha256": "aca03d2fba12508ef07d5968ca22267fb207ea26ae898b6b2def8a296bd44f1c"
+    },
+    {
+      "file": "outfits/T_Regular_Female_Dark_BaseColor.png",
+      "bytes": 1348542,
+      "sha256": "3b6ab973f9f3d6f8961226a0dbd99cf6d1b72df3795a8a5c1620a55754c161c2"
+    },
+    {
+      "file": "outfits/T_Regular_Female_Normal.png",
+      "bytes": 3913459,
+      "sha256": "e1051d3d56df9cf061bc14c769c37253aecd595f8275f9d4c0d6e0e953c00e18"
+    },
+    {
+      "file": "outfits/T_Regular_Female_Roughness.png",
+      "bytes": 3274215,
+      "sha256": "da541fbd4b3bffe754fada5c29f8a0d8f836bf20ce7df8273607af4729a3a5ae"
+    },
+    {
+      "file": "outfits/T_Regular_Male_Dark_BaseColor.png",
+      "bytes": 1316151,
+      "sha256": "b4dcc0f4139aab548d7c070c4655bd2080ef16caeaaabee6c4aeb693c524e802"
+    },
+    {
+      "file": "outfits/T_Regular_Male_Normal.png",
+      "bytes": 4064184,
+      "sha256": "10cd71e2453e577fdd43e912b6016a99baf64964f0593e524bdd304855e15e2a"
+    },
+    {
+      "file": "outfits/T_Regular_Male_Roughness.png",
+      "bytes": 3160102,
+      "sha256": "086c2eb25bddfdb77d8e639ccbffb8df723ef4a1910d8e1b217e852f8668bfe5"
+    }
+  ]
+}

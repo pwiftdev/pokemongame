@@ -3,6 +3,15 @@ import { randomUUID } from "node:crypto";
 import { commandSchema, RateLimit } from "../commands.js";
 
 describe("untrusted command boundary", () => {
+  it("bounds limiter storage without evicting live counters", () => {
+    const limiter = new RateLimit(2, 1000, 2);
+    expect(limiter.allow("a", 100)).toBe(true);
+    expect(limiter.allow("b", 100)).toBe(true);
+    expect(limiter.allow("c", 100)).toBe(false);
+    expect(limiter.allow("a", 101)).toBe(true);
+    expect(limiter.allow("a", 102)).toBe(false);
+    expect(limiter.allow("c", 1100)).toBe(true);
+  });
   it("rejects client currency, teleport, NaN, oversized movement, foreign fields and malformed IDs", () => {
     for (const command of [
       { kind: "balance", amount: 1000 },

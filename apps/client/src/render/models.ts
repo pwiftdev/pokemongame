@@ -1,28 +1,88 @@
+import { startup, modelGroup } from "../loading/progress";
 import {
   InstancedMesh,
+  Mesh,
   LoadAssetContainerAsync,
   TransformNode,
   type AssetContainer,
   type Scene,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
+import { retryAsset } from "./asset-retry";
 
 export async function loadModelLibrary(
   scene: Scene,
   urls: Record<string, string>,
+  optional: (name: string) => boolean = () => false,
 ) {
+  const strictStartup = startup.active;
   const templates = new Map<string, AssetContainer>();
+  const pending = new Map<string, Promise<void>>();
+  let disposed = false;
+  const cancellation = new AbortController();
+  const stop = () => {
+    disposed = true;
+    cancellation.abort();
+  };
+  scene.onDisposeObservable.addOnce(stop);
+  async function load(name: string, url: string, retry = true) {
+    if (templates.has(name)) return;
+    if (pending.has(name)) return pending.get(name)!;
+    const request = startup
+      .track(url, modelGroup(url), name.replaceAll("_", " "), () =>
+        retryAsset(
+          () =>
+            LoadAssetContainerAsync(url, scene, {
+              pluginOptions: { gltf: { animationStartMode: 0 } },
+            }),
+          cancellation.signal,
+          retry ? undefined : [],
+        ),
+      )
+      .then((template) => {
+        if (disposed) template.dispose();
+        else templates.set(name, template);
+      })
+      .finally(() => pending.delete(name));
+    pending.set(name, request);
+    return request;
+  }
   const results = await Promise.allSettled(
     Object.entries(urls).map(async ([name, url]) => {
-      templates.set(name, await LoadAssetContainerAsync(url, scene));
+      try {
+        await load(name, url, strictStartup);
+      } catch (error) {
+        if (strictStartup || !optional(name)) throw error;
+      }
     }),
   );
   const failure = results.find((result) => result.status === "rejected");
   if (failure?.status === "rejected") {
+    stop();
     for (const template of templates.values()) template.dispose();
     throw failure.reason;
   }
+  const whenReady = (name: string, ready: () => void) => {
+    if (disposed) return;
+    if (templates.has(name)) {
+      ready();
+      return;
+    }
+    void load(name, urls[name])
+      .then(() => {
+        if (!disposed) ready();
+      })
+      .catch((error) => {
+        if (!disposed)
+          console.warn(`Optional model ${name} unavailable`, error);
+      });
+  };
+  for (const name of Object.keys(urls))
+    if (!templates.has(name)) whenReady(name, () => {});
   return {
+    load,
+    whenReady,
+    has: (name: string) => templates.has(name),
     create(name: string, id: string, height?: number, animated = false) {
       const template = templates.get(name);
       if (!template) throw new Error(`Unknown model: ${name}`);
@@ -42,7 +102,15 @@ export async function loadModelLibrary(
       for (const node of instance.rootNodes) node.parent = pivot;
       if (height !== undefined) {
         root.computeWorldMatrix(true);
-        const bounds = root.getHierarchyBoundingVectors();
+        for (const node of root.getChildTransformNodes())
+          node.computeWorldMatrix(true);
+        for (const mesh of root.getChildMeshes()) {
+          if (mesh instanceof Mesh && mesh.skeleton) {
+            mesh.skeleton.prepare(true);
+            mesh.refreshBoundingInfo(true);
+          }
+        }
+        const bounds = modelBounds(root);
         const scale = height / Math.max(0.01, bounds.max.y - bounds.min.y);
         root.scaling.setAll(scale);
         pivot.position.set(
@@ -57,7 +125,10 @@ export async function loadModelLibrary(
           mesh.sourceMesh.receiveShadows = true;
         else mesh.receiveShadows = true;
         mesh.isPickable = animated;
-        mesh.metadata = animated ? { target: id } : { cameraObstacle: true };
+        mesh.metadata = {
+          ...mesh.metadata,
+          ...(animated ? { target: id } : { cameraObstacle: true }),
+        };
       }
       return {
         root,
@@ -70,7 +141,9 @@ export async function loadModelLibrary(
       };
     },
     dispose() {
+      stop();
       for (const template of templates.values()) template.dispose();
+      templates.clear();
     },
   };
 }
@@ -78,5 +151,16 @@ export async function loadModelLibrary(
 export function modelUrls(folder: string, names: readonly string[]) {
   return Object.fromEntries(
     names.map((name) => [name, `/assets/${folder}/${name}.glb`]),
+  );
+}
+
+export function modelBounds(root: TransformNode) {
+  return root.getHierarchyBoundingVectors(
+    true,
+    (mesh) =>
+      (mesh instanceof Mesh || mesh instanceof InstancedMesh) &&
+      mesh.isEnabled() &&
+      mesh.getTotalVertices() > 0 &&
+      !mesh.metadata?.gltf?.extras?.excludeFromBounds,
   );
 }

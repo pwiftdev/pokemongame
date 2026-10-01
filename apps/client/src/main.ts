@@ -1,3 +1,31 @@
+import { PLACES } from "../../../packages/shared/data";
+import { trainingPanel } from "./ui/practice";
+import { TRAINING_TARGETS } from "../../../packages/shared/training";
+import { duelReach } from "../../../packages/shared/duel-rules";
+import { directionLabel } from "./ui/adventure-guide";
+import { captureGuidance, castWarning } from "./ui/combat-guidance";
+import {
+  explorerRows,
+  explorersPanel,
+  invitedIsland,
+  islandInvite,
+} from "./ui/explorers";
+import { performanceMarkup, updatePerformance } from "./ui/performance";
+import "./adventure.css";
+import { onboardingSteps } from "./ui/onboarding";
+import { startup } from "./loading/progress";
+import { failLoading, finishLoading } from "./loading/screen";
+import { prepareInterface } from "./loading/interface-assets";
+import {
+  normalizeAppearance,
+  cleanDisplayName,
+  validDisplayName,
+} from "../../../packages/shared/appearance";
+import { mountCharacterCreator } from "./ui/character-creator";
+import { pokedexPanel } from "./ui/pokedex";
+import { POKEMON } from "../../../packages/shared/pokemon";
+import { companionBarMarkup, updateCompanionBar } from "./ui/companion-bar";
+import { pokemonStatsMarkup } from "./ui/pokemon-stats";
 import { DASH } from "../../../packages/shared/combat";
 import { storyTracker, storyJournal } from "./ui/story-journal";
 import {
@@ -7,16 +35,16 @@ import {
 } from "../../../packages/shared/story";
 import { HABITATS } from "../../../packages/shared/encounters";
 import {
-  CLASSES,
   CLASS_IDS,
   heroClass,
+  GCD_MS,
+  abilityUnlocked,
   type ClassId,
 } from "../../../packages/shared/classes";
 import { heroLevel } from "../../../packages/shared/hero";
-import { GCD_MS, abilityUnlocked } from "../../../packages/shared/classes";
-import { xpForLevel } from "../../../packages/shared/rules";
 import { actionBarMarkup, tooltipMarkup, updateSlot } from "./ui/action-bar";
 import {
+  healthTone,
   playerFrameMarkup,
   targetFrameMarkup,
   targetKey,
@@ -25,8 +53,8 @@ import {
 } from "./ui/unit-frames";
 import { createCombatLog } from "./ui/combat-log";
 import { installTooltips } from "./ui/tooltip";
-import { worldMap, mapPoint } from "./ui/world-map";
-import { updateMarkup } from "./ui/dom";
+import { worldMap, mapPoint, explorerMapPins } from "./ui/world-map";
+import { updateMarkup, preservePanel } from "./ui/dom";
 import { creaturePortrait } from "./roster";
 import { Client, type Room } from "colyseus.js";
 import type {
@@ -38,10 +66,20 @@ import type {
 } from "../../../packages/shared/types";
 import { createWorld } from "./world";
 import { BRAND, BIOMES, ABILITIES } from "../../../packages/shared/data";
-import { biomeAt, distance } from "../../../packages/shared/rules";
+import {
+  biomeAt,
+  creatureName,
+  distance,
+  xpForLevel,
+} from "../../../packages/shared/rules";
 import { drawMinimap } from "./ui/minimap";
 import { abilityAvailability, abilityHighlighted } from "./ui/combat";
 import { GameAudio } from "./audio";
+import {
+  audioDefaults,
+  normalizeAudio,
+  type AudioSettings,
+} from "./audio/catalog";
 import { icon, escape as esc } from "./ui/icons";
 import {
   species,
@@ -55,9 +93,15 @@ import {
   text,
   number,
 } from "./ui/data";
+import { adventureNavigation, worldMark } from "./ui/navigation";
+import { hudMarkup } from "./ui/hud";
 import "./style.css";
+import "./interface.css";
 
 type Panel =
+  | "explorers"
+  | "appearance"
+  | "pokedex"
   | "collection"
   | "inventory"
   | "shop"
@@ -67,11 +111,7 @@ type Panel =
   | "settings"
   | "credits"
   | "ledger";
-type Settings = {
-  master: number;
-  music: number;
-  effects: number;
-  mute: boolean;
+type Settings = AudioSettings & {
   quality: string;
   sensitivity: number;
   reducedMotion: boolean;
@@ -80,10 +120,7 @@ type Settings = {
   keybinds: Record<string, string>;
 };
 const defaults: Settings = {
-  master: 0.5,
-  music: 0.25,
-  effects: 0.65,
-  mute: false,
+  ...audioDefaults,
   quality: "high",
   sensitivity: 1,
   reducedMotion: false,
@@ -102,6 +139,7 @@ const defaults: Settings = {
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const canvas = document.querySelector<HTMLCanvasElement>("#world")!;
 const audio = new GameAudio();
+Object.defineProperty(window, "__audioMetrics", { get: () => audio.metrics });
 let settings = readSettings();
 let world: Awaited<ReturnType<typeof createWorld>>;
 let room: Room | undefined;
@@ -115,6 +153,9 @@ let activePanel: Panel | null = null;
 let selectedStarter = "";
 let selectedClass: ClassId = "knight";
 let classChosen = false;
+let draftAppearance = normalizeAppearance();
+let characterCreator: ReturnType<typeof mountCharacterCreator> | undefined;
+let appearanceEditor: ReturnType<typeof mountCharacterCreator> | undefined;
 let lastFocus: HTMLElement | null = null;
 let latestTransactions: unknown[] = [];
 let latestMatches: unknown[] = [];
@@ -132,7 +173,10 @@ let combatLog: ReturnType<typeof createCombatLog> | undefined;
 let tooltips: ReturnType<typeof installTooltips> | undefined;
 let errorTimer = 0;
 let snapshotAt = 0;
+let lastDiagnosticsAt = 0;
+let lastExplorersAt = 0;
 let lastActiveDuel: string | null = null;
+let lastInvitation: string | null = null;
 let lastCastAt = 0;
 let queuedAbility:
   | { slot: number; target: string | null; until: number }
@@ -148,12 +192,14 @@ const client = new Client(serverUrl.replace(/^http/, "ws"));
 
 function readSettings(): Settings {
   try {
+    const stored = JSON.parse(localStorage.getItem("island.settings") || "{}");
     return {
       ...defaults,
-      ...JSON.parse(localStorage.getItem("island.settings") || "{}"),
+      ...stored,
+      ...normalizeAudio(stored),
       keybinds: {
         ...defaults.keybinds,
-        ...JSON.parse(localStorage.getItem("island.settings") || "{}").keybinds,
+        ...stored.keybinds,
       },
     };
   } catch {
@@ -180,7 +226,7 @@ function glyph(element: string, cls = "") {
   return `<span class="element-glyph ${esc(element)} ${cls}">${icon(element)}</span>`;
 }
 function health(hp: number, max: number) {
-  return `<span class="health-track"><span style="width:${Math.max(0, Math.min(100, (hp / Math.max(1, max)) * 100))}%"></span></span>`;
+  return `<span class="health-track" data-health="${healthTone(hp, max)}"><span style="width:${Math.max(0, Math.min(100, (hp / Math.max(1, max)) * 100))}%"></span></span>`;
 }
 function notify(message: string, kind = "info") {
   const stack = document.querySelector("#toasts")!;
@@ -231,6 +277,7 @@ function companionName() {
     : "Your companion";
 }
 function selectTarget(id: string | null) {
+  if (id && id !== target) audio.play("target");
   target = id;
   world.setTarget(id);
   refreshWorld();
@@ -268,29 +315,14 @@ async function api(path: string, init?: RequestInit) {
 function shell() {
   app.innerHTML = `
     <div id="title-screen" class="title-screen">
-      <header class="title-header"><a class="wordmark" href="#" aria-label="${esc(title)} home">${icon("leaf")}<span>${esc(title)}<small>${esc(BRAND.subtitle).toUpperCase()}</small></span></a><div class="edition"><span class="live-dot"></span> A SHARED WORLD, YOUR OWN STORY</div>${button(icon("settings"), "panel:settings", "icon-button", false)}</header>
-      <main class="title-content"><div class="eyebrow"><span></span> WELCOME TO ${esc(BRAND.island).toUpperCase()}</div><h1>A little wild.<br />A world of <em>wonder.</em></h1><p>Follow the unfamiliar. Find your companion.<br />An island of little discoveries is waiting for you.</p>
+      <header class="title-header"><a class="wordmark" href="#" aria-label="${esc(title)} home">${worldMark()}<span>${esc(title)}<small>${esc(BRAND.subtitle).toUpperCase()}</small></span></a><div class="edition"><span class="live-dot"></span> A SHARED WORLD, YOUR OWN STORY</div>${button(icon("settings"), "panel:settings", "icon-button", false)}</header>
+      <main class="title-content"><div class="eyebrow"><span></span> WELCOME TO ${esc(BRAND.island).toUpperCase()}</div><h1><span>WORLD OF</span>POKÉMON</h1><div class="adventure-tags"><span>EXPLORE</span><span>BEFRIEND</span><span>BATTLE</span></div><p>Your Pokémon. Your party. Your adventure.<br />Discover a shared world, one encounter at a time.</p>
       <div id="entry-form" class="entry-form"><label for="nickname">WHAT SHOULD WE CALL YOU?</label><input id="nickname" maxlength="18" minlength="2" autocomplete="nickname" placeholder="Your explorer name" aria-describedby="guest-note" /><button id="start" class="primary start-button" data-action="start" disabled><span id="start-label">Preparing the island…</span>${icon("arrow")}</button><details class="world-choice"><summary>Choose an island</summary><label for="world-mode">SHARED WORLD</label><select id="world-mode"><option value="auto">Find an island automatically</option><option value="new">Create a fresh island</option><option value="code">Join a friend’s island</option></select><input id="world-code" aria-label="Island code" maxlength="24" placeholder="Paste your friend’s island code" class="hidden" /></details><div id="guest-note" class="guest-note">Your adventure saves automatically in this browser.<br />Keep its data to keep your guest identity.</div></div>
-      <div id="loading-status" class="loading-status"><span class="loading-line"></span>Growing a world of possibilities</div></main>
+      <div id="loading-status" class="loading-status"><span class="loading-line"></span>Preparing your expedition</div></main>
       <aside class="vista-label"><span class="coordinate">01 / 04</span><span>Hearthwick<small>Every great friendship starts somewhere.</small></span></aside>
       <footer class="title-footer"><span>EXPLORE. BEFRIEND. BELONG.</span><div>${button("Field notes & credits", "panel:credits", "text-button")}<span class="footer-rule"></span><span>DESKTOP ADVENTURE</span></div></footer>
     </div>
-    <div id="hud" class="hud hidden"><div class="hud-top"><div class="location-pill">${icon("compass")}<span id="location-name">Hearthwick<small>SAFE HAVEN</small></span></div><div class="hud-top-right"><div id="presence" class="presence">1 explorer online</div><button id="room-code" data-action="copy-room" class="text-button" title="Copy island code for a friend"></button><button class="balance-pill" data-action="panel:ledger">${icon("coin")}<span id="balance">0</span><small>${esc(currency)}</small></button>${button(icon("settings"), "panel:settings", "icon-button dark")}</div></div>
-      <div class="quest-tracker" id="quest-tracker"></div><button class="minimap" data-action="panel:map" aria-label="Open island map"><canvas id="minimap" width="180" height="180"></canvas><span>ASTER ISLE <kbd>M</kbd></span></button><div id="target-card" class="target-card hidden"></div><div id="duel-banner" class="duel-banner hidden"></div>
-      <div class="hud-bottom"><div id="companion-card" class="unit-frames"></div><div class="combat-center"><div id="interaction" class="interaction"></div><div id="combat-status" class="combat-status">Choose a creature · Tab to target nearest</div><div id="cast-bar" class="cast-bar hidden" role="status"><span class="cast-fill"></span><span class="cast-name"></span><span class="cast-time"></span></div><div id="abilities" class="ability-bar"></div><div id="xp-bar" class="xp-bar"><span class="xp-fill"></span><span class="xp-text"></span></div><div class="combat-hint"><kbd>1</kbd>–<kbd>6</kbd> ABILITIES <span>·</span> <kbd>T</kbd> / RIGHT-CLICK AUTO ATTACK <span>·</span> <kbd>TAB</kbd> NEXT TARGET <span>·</span> <kbd>G</kbd> COMPANION <span>·</span> <kbd>SPACE</kbd> DASH</div></div><nav class="quick-nav" aria-label="Adventure menus">${[
-        ["collection", "team", "Companions", "C"],
-        ["inventory", "bag", "Inventory", "B"],
-        ["quests", "journal", "Quests", "J"],
-        ["map", "map", "Map", "M"],
-      ]
-        .map(
-          ([panel, glyph, label, key]) =>
-            `<button data-action="panel:${panel}" title="${label} (${key})" aria-label="${label}">${icon(glyph)}<kbd>${key}</kbd></button>`,
-        )
-        .join("")}</nav></div>
-      <div id="combat-log" class="combat-log" aria-live="off"></div><div id="error-line" class="error-line" role="status"></div><div id="level-banner" class="level-banner hidden"></div><div id="defeat-banner" class="defeat-banner hidden"><strong>Defeated</strong><span>Your spirit returned to Hearthwick. Visit the Springhouse to be healed for free.</span></div>
-      <div class="movement-hint"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> MOVE <span>SHIFT</span> SPRINT <span>E</span> INTERACT</div>
-    </div>
+    ${hudMarkup()}
     <div id="screen-fx" class="screen-fx"></div>
     <div id="starter-screen" class="starter-screen hidden"></div>
     <div id="connection" class="connection hidden" role="alert"></div>
@@ -306,10 +338,18 @@ function shell() {
           (event.target as HTMLSelectElement).value !== "code",
         );
     });
+  const invitation = invitedIsland(location.search);
+  if (invitation) {
+    document.querySelector<HTMLDetailsElement>(".world-choice")!.open = true;
+    document.querySelector<HTMLSelectElement>("#world-mode")!.value = "code";
+    const code = document.querySelector<HTMLInputElement>("#world-code")!;
+    code.value = invitation;
+    code.classList.remove("hidden");
+  }
   combatLog = createCombatLog(document.querySelector("#combat-log")!);
   tooltips = installTooltips(app, (key) =>
     profile?.classId
-      ? tooltipMarkup(key, profile.classId, heroLevel(profile))
+      ? tooltipMarkup(key, profile.classId, currentCombatLevel())
       : "",
   );
   const nickname = document.querySelector<HTMLInputElement>("#nickname")!;
@@ -346,6 +386,9 @@ async function connect() {
     localStorage.setItem("island.token", session.token);
     localStorage.setItem("island.nickname", session.profile.nickname);
     profile = session.profile;
+    selectedClass = profile?.classId ?? "knight";
+    draftAppearance = normalizeAppearance(profile?.appearance);
+    classChosen = Boolean(profile?.classId);
     const mode =
       document.querySelector<HTMLSelectElement>("#world-mode")!.value;
     const code = document
@@ -363,6 +406,7 @@ async function connect() {
     connected = true;
     room.onMessage("profile", (next: Profile) => {
       profile = next;
+      localStorage.setItem("island.nickname", next.nickname);
       world.setProfile(next);
       refreshProfile();
     });
@@ -378,6 +422,7 @@ async function connect() {
         );
         if (Date.now() - lastAttackSent > 350) gcdUntil = local(self.gcdUntil);
       }
+      audio.setSnapshot(next, profile!.id);
       world.setSnapshot(next, profile!.id);
       refreshWorld();
     });
@@ -386,12 +431,27 @@ async function connect() {
         selectTarget(null);
       if (event.type === "defeat" && event.target === target)
         selectTarget(null);
+      if (event.type === "appearance" && activePanel === "appearance")
+        closePanel();
+      audio.handleEvent(event);
       world.handleEvent(event);
       combatLog?.record(event, {
         selfId: profile?.id ?? "",
         name: nameOf,
         companion: companionName(),
       });
+      if (event.capture?.success && event.source === profile?.id) {
+        const caught = event.capture;
+        window.setTimeout(() => {
+          document.querySelector("#caught-card")?.remove();
+          const card = document.createElement("div");
+          card.id = "caught-card";
+          card.className = "caught-card";
+          card.innerHTML = `<span class="eyebrow">${caught.shiny ? "SHINY POKÉMON" : "NEW FRIEND"}</span><h2>Caught!</h2>${portrait(caught.species)}<h3>${POKEMON[caught.species].name}</h3><p>Saved to your collection and Pokédex.</p><button class="primary compact" data-action="panel:pokedex">View Pokédex</button>`;
+          app.append(card);
+          window.setTimeout(() => card.remove(), 5500);
+        }, caught.duration);
+      }
       if (event.target === profile?.id && event.type === "hit" && event.amount)
         flashScreen(event.outcome === "crit");
       if (
@@ -410,8 +470,6 @@ async function connect() {
           "shatter",
         ].includes(event.type)
       ) {
-        if (event.source === profile?.id || event.target === profile?.id)
-          audio.playCombat(event, profile?.id ?? "");
         if (
           event.source === profile?.id &&
           event.ability &&
@@ -432,7 +490,13 @@ async function connect() {
         return;
       else if (event.type === "reward" && event.target) return;
       else if (event.type === "defeat") return;
-      else notify(event.message, event.type);
+      else if (event.capture) {
+        if (!event.capture.success)
+          window.setTimeout(
+            () => notify(event.message, event.type),
+            event.capture.duration,
+          );
+      } else notify(event.message, event.type);
     });
     room.onMessage("error", (error: { message: string }) => {
       if (Date.now() - lastAttackSent < 700) {
@@ -443,17 +507,20 @@ async function connect() {
     });
     room.onDrop(() => {
       connected = false;
+      audio.setConnected(false);
       document.querySelector("#connection")!.classList.remove("hidden");
       document.querySelector("#connection")!.textContent =
         "Connection interrupted. Reconnecting to your island…";
     });
     room.onReconnect(() => {
       connected = true;
+      audio.setConnected(true);
       document.querySelector("#connection")!.classList.add("hidden");
       notify("Reconnected. Your expedition is ready.");
     });
     room.onLeave(() => {
       connected = false;
+      audio.setConnected(false);
       document.querySelector("#connection")!.classList.remove("hidden");
       document.querySelector("#connection")!.innerHTML =
         `<span>Connection interrupted. Your saved progress is safe.</span>${button("Reconnect", "reconnect", "primary")}`;
@@ -464,6 +531,8 @@ async function connect() {
     document.querySelector("#connection")!.classList.add("hidden");
     document.querySelector("#title-screen")!.classList.add("hidden");
     playing = true;
+    audio.setConnected(true);
+    audio.setPlaying(true);
     world.setPlaying(true);
     world.setProfile(profile!);
     refreshProfile();
@@ -490,23 +559,68 @@ async function connect() {
 }
 
 function starterScreen() {
+  const screen = document.querySelector<HTMLElement>("#starter-screen")!;
   if (!classChosen) {
-    document.querySelector("#starter-screen")!.innerHTML =
-      `<div class="starter-intro"><span class="eyebrow">CREATE YOUR ADVENTURER</span><h2>Choose your<br/><em>calling.</em></h2><p>Fight with your own weapons and abilities.<br/>Your Pokémon fights alongside you.</p></div><div class="class-options">${CLASS_IDS.map(
-        (id) => {
-          const c = CLASSES[id];
-          return `<button class="class-option ${selectedClass === id ? "selected" : ""}" data-action="class-select:${id}"><img src="/assets/portraits/${c.model}.png" alt="${c.name}"/><span class="eyebrow">${c.role}</span><h3>${c.name}</h3><p>${c.description}</p><div class="class-skills">${c.abilities.map((a) => `<span>${a.name}</span>`).join("")}</div></button>`;
+    if (!characterCreator)
+      characterCreator = mountCharacterCreator(
+        document.querySelector("#starter-screen")!,
+        {
+          appearance: draftAppearance,
+          classId: selectedClass,
+          nickname: profile?.nickname ?? "Adventurer",
+          hasCompanion: Boolean(profile?.creatures.length),
+          onChange: (appearance) => {
+            draftAppearance = appearance;
+          },
         },
-      ).join(
-        "",
-      )}</div><div class="starter-footer">${button(profile?.creatures.length ? "Enter the world" : "Choose your Pokémon " + icon("arrow"), "class-confirm", "primary")}<small>Four classes · Real weapons · Independent companion orders</small></div>`;
+      );
+    focusOnboardingStep(screen, "character");
     return;
   }
 
+  characterCreator?.dispose();
+  characterCreator = undefined;
   const starters = species().filter((entry) => entry.starter);
   if (!selectedStarter) selectedStarter = text(starters[0] || {}, "id");
   document.querySelector("#starter-screen")!.innerHTML =
-    `<div class="starter-intro"><span class="eyebrow">YOUR FIRST CHAPTER</span><h2>Every adventure<br />begins with <em>a friend.</em></h2><p>Three different spirits. One lifelong companion.<br />Find wild Pokémon to grow your team. Hostile monsters are enemies.</p></div><div class="starter-options">${starters.map((entry) => `<button class="starter-option ${selectedStarter === entry.id ? "selected" : ""}" data-action="starter-select:${esc(entry.id)}">${portrait(text(entry, "id"), false, "starter-portrait")}<span class="eyebrow">${esc(entry.element)} AFFINITY</span><h3>${esc(entry.name)}</h3><p>${esc(entry.description || entry.blurb || "A loyal little companion, ready for a big adventure.")}</p><span class="starter-choice">${selectedStarter === entry.id ? `${icon("check")} YOUR COMPANION` : "GET TO KNOW ME"}</span></button>`).join("")}</div><div class="starter-footer">${button(`Meet your companion ${icon("arrow")}`, "starter-confirm", "primary")}<small>Move with WASD · Drag to orbit · Q / R to rotate · E to interact</small></div>`;
+    `<div class="starter-intro">${onboardingSteps(2)}<span class="eyebrow">YOUR FIRST CHAPTER</span><h2>Every adventure<br />begins with <em>a friend.</em></h2><p>Three different spirits. One lifelong companion.<br />Find wild Pokémon to grow your team. Hostile monsters are enemies.</p></div><div class="starter-options">${starters.map((entry) => `<button class="starter-option ${selectedStarter === entry.id ? "selected" : ""}" aria-pressed="${selectedStarter === entry.id}" data-action="starter-select:${esc(entry.id)}">${portrait(text(entry, "id"), false, "starter-portrait")}<span class="eyebrow">${esc(entry.element)} AFFINITY</span><h3>${esc(entry.name)}</h3><p>${esc(entry.description || entry.blurb || "A loyal little companion, ready for a big adventure.")}</p><span class="starter-choice">${selectedStarter === entry.id ? `${icon("check")} YOUR COMPANION` : "GET TO KNOW ME"}</span></button>`).join("")}</div><div class="starter-footer">${button(`Meet your companion ${icon("arrow")}`, "starter-confirm", "primary")}<small>Move with WASD · Drag to orbit · Q / R to rotate · E to interact</small></div>`;
+  screen
+    .querySelector(".starter-footer")!
+    .insertAdjacentHTML(
+      "beforeend",
+      button("Back to character", "starter-back", "secondary"),
+    );
+  focusOnboardingStep(screen, "pokemon");
+}
+function focusOnboardingStep(screen: HTMLElement, step: string) {
+  if (screen.dataset.step === step) return;
+  screen.dataset.step = step;
+  screen.classList.remove("hidden");
+  screen.scrollTop = 0;
+  const heading = screen.querySelector<HTMLElement>("h2");
+  if (heading) {
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: true });
+  }
+}
+function currentCombatLevel() {
+  return (
+    snapshot?.players.find((p) => p.id === profile?.id)?.level ??
+    (profile ? heroLevel(profile) : 1)
+  );
+}
+function refreshActionBar() {
+  if (!profile?.classId) return;
+  const level = currentCombatLevel();
+  const key = `${profile.classId}:${level}:${profile.inventory.capsule ?? 0}`;
+  if (key === barKey) return;
+  barKey = key;
+  document.querySelector("#abilities")!.innerHTML = actionBarMarkup(
+    profile.classId,
+    level,
+    profile.inventory.capsule ?? 0,
+  );
+  tooltips?.refresh();
 }
 function refreshProfile() {
   if (!profile) return;
@@ -520,27 +634,25 @@ function refreshProfile() {
   if (needsStarter) {
     starterScreen();
     world.setPlaying(false);
-  } else if (!activePanel) world.setPlaying(true);
+  } else {
+    characterCreator?.dispose();
+    characterCreator = undefined;
+    if (!activePanel) world.setPlaying(true);
+  }
   document.querySelector("#balance")!.textContent =
     profile.balance.toLocaleString();
   const active = profile.creatures.find((c) => c.id === profile!.active);
   const level = heroLevel(profile);
-  const frames = `${profile.classId}:${profile.nickname}:${level}:${active?.id}:${active?.level}:${active?.evolved}:${active?.nickname}`;
+  const frames = `${profile.classId}:${profile.nickname}:${level}:${active?.id}:${active?.level}:${active?.evolved}:${active?.species}:${active?.nickname}:${active?.moves.join(",")}`;
   if (profile.classId && frames !== frameKey) {
     frameKey = frames;
+    document.querySelector("#pet-abilities")!.innerHTML =
+      companionBarMarkup(profile);
+    tooltips?.refresh();
     document.querySelector("#companion-card")!.innerHTML =
       playerFrameMarkup(profile);
   }
-  const bar = `${profile.classId}:${level}:${profile.inventory.capsule ?? 0}`;
-  if (profile.classId && bar !== barKey) {
-    barKey = bar;
-    document.querySelector("#abilities")!.innerHTML = actionBarMarkup(
-      profile.classId,
-      level,
-      profile.inventory.capsule ?? 0,
-    );
-    tooltips?.refresh();
-  }
+  refreshActionBar();
   if (knownLevel && level > knownLevel) levelUp(level, knownLevel);
   knownLevel = level;
   if (active && knownXp && knownXp.id === active.id) {
@@ -568,7 +680,9 @@ function refreshProfile() {
   refreshQuest();
   if (
     activePanel &&
-    !["settings", "credits", "map", "ledger"].includes(activePanel)
+    !["appearance", "settings", "credits", "map", "ledger"].includes(
+      activePanel,
+    )
   )
     renderPanel(false);
 }
@@ -605,6 +719,7 @@ function nearestPlace() {
 }
 function refreshWorld() {
   if (!snapshot || !profile) return;
+  refreshActionBar();
   document.querySelector("#presence")!.textContent =
     `${snapshot.players.length} explorer${snapshot.players.length === 1 ? "" : "s"} online`;
   const self = snapshot.players.find((player) => player.id === profile!.id);
@@ -621,11 +736,16 @@ function refreshWorld() {
   const destination = quest && questDestination(profile, quest);
   const direction = document.querySelector("#story-direction");
   if (direction && destination && self)
-    direction.textContent = `${Math.round(distance(self, destination))}m · Gold marker on your map`;
+    direction.textContent = directionLabel(self, destination);
   const habitat = HABITATS.find((h) => self && distance(self, h) < 15);
   const biome = BIOMES[biomeKey].name;
-  document.querySelector("#location-name")!.innerHTML =
-    `${esc(habitat?.name ?? biome)}<small>${habitat ? (habitat.kind === "pokemon" ? "WILD POKÉMON HABITAT" : "MONSTER TERRITORY") : biome === "Hearthwick" ? "SAFE HAVEN" : "WILDERNESS"}</small>`;
+  const locationName = habitat?.name ?? biome;
+  const locationLabel = document.querySelector<HTMLElement>("#location-name")!;
+  updateMarkup(
+    locationLabel,
+    `${esc(locationName)}<small>${habitat ? (habitat.kind === "pokemon" ? "WILD POKÉMON HABITAT" : "MONSTER TERRITORY") : biome === "Hearthwick" ? "SAFE HAVEN" : "WILDERNESS"}</small>`,
+  );
+  if (locationLabel.title !== locationName) locationLabel.title = locationName;
   updateMarkup(
     document.querySelector("#interaction")!,
     place && place.distance < interactionRadius(text(place, "id"))
@@ -671,19 +791,29 @@ function refreshWorld() {
       (duel.a === profile!.id || duel.b === profile!.id) &&
       duel.state !== "finished",
   );
+  if (duel?.state === "invite" && duel.id !== lastInvitation) {
+    lastInvitation = duel.id;
+    if (activePanel && duel.b === profile.id) closePanel();
+  }
   const banner = document.querySelector("#duel-banner")!;
   banner.classList.toggle("hidden", !duel);
   if (duel)
     updateMarkup(
       banner,
       duel.state === "active"
-        ? `<strong>Arena duel in progress</strong><span>Command your companion. All levels are normalized.</span>${button("Surrender", "surrender", "text-button")}`
+        ? `<strong>${duel.arena ? "Arena duel" : "Friendly duel"} in progress</strong><span>Level 10 · 180 health · ${Math.max(0, Math.ceil((duel.expires - snapshot.time) / 1000))}s remaining.</span>${button("Surrender", "surrender", "text-button")}`
         : duel.b === profile.id
-          ? `<strong>A friendly challenge awaits</strong><span>Accept to enter a normalized companion duel.</span>${button("Accept", `duelAccept:${duel.id}`, "primary")}${button("Decline", `duelReject:${duel.id}`, "secondary")}`
+          ? `<strong>A friendly challenge awaits</strong><span>Accept to duel here at level 10. Your adventure health stays safe.</span>${button("Accept", `duelAccept:${duel.id}`, "primary")}${button("Decline", `duelReject:${duel.id}`, "secondary")}`
           : `<strong>Challenge sent</strong><span>Waiting for your fellow explorer.</span>${button("Cancel invitation", `duelCancel:${duel.id}`, "text-button")}`,
     );
   refreshCombatControls();
   if (activePanel === "map") updateMapPosition();
+  if (activePanel === "explorers" && Date.now() - lastExplorersAt > 1000) {
+    lastExplorersAt = Date.now();
+    const roster = document.querySelector("#explorer-list");
+    if (roster)
+      updateMarkup(roster, explorerRows(snapshot.players, profile.id));
+  }
   if (activePanel === "arena") {
     const queueButton = document.querySelector<HTMLButtonElement>(
       '[data-action="queue"]',
@@ -733,7 +863,13 @@ function attack(slot: number, quiet = false) {
     if ((reason === "Recharging" || reason === "Casting") && wait < 400)
       queuedAbility = { slot, target, until: now + wait + 250 };
     if (quiet || reason === "Recharging" || reason === "Casting") return;
-    combatError(reason);
+    combatError(
+      reason === "Move closer" && self && opponent
+        ? `Move ${Math.ceil(distance(self, opponent) - ability.range)}m closer · ${ability.name} reaches ${ability.range}m`
+        : reason === "Path is blocked"
+          ? "Path blocked · Move around the obstacle for a clear view"
+          : reason,
+    );
     return;
   }
   queuedAbility = undefined;
@@ -755,6 +891,11 @@ function serverNow() {
   return (snapshot?.time ?? Date.now()) + (Date.now() - snapshotAt);
 }
 function refreshCombatControls() {
+  updateCompanionBar(
+    document.querySelector("#pet-abilities")!,
+    snapshot?.players.find((p) => p.id === profile?.id),
+    serverNow(),
+  );
   if (!profile || !snapshot) return;
   const self = snapshot.players.find((player) => player.id === profile!.id);
   const opponent =
@@ -872,7 +1013,17 @@ function refreshCombatControls() {
   document
     .querySelector("#defeat-banner")
     ?.classList.toggle("hidden", !defeated);
+  if (activePanel === "settings" && now - lastDiagnosticsAt > 1000) {
+    lastDiagnosticsAt = now;
+    updatePerformance(
+      document.querySelector("#modal-root")!,
+      now - snapshotAt,
+      connected,
+    );
+  }
   const status = document.querySelector("#combat-status")!;
+  const warning = castWarning(opponent, server);
+  status.classList.toggle("incoming-attack", !!warning);
   const guard = (self?.guardUntil ?? 0) > server;
   status.classList.toggle("guard-active", guard);
   const text = defeated
@@ -881,15 +1032,15 @@ function refreshCombatControls() {
       ? "GUARD ACTIVE · Incoming damage reduced"
       : combatHint && combatHint.until > now
         ? combatHint.text
-        : opponent && self
-          ? "species" in opponent &&
-            opponent.hp / opponent.maxHp < 0.35 &&
-            !!findSpecies(opponent.species).companion
-            ? "WEAKENED · Press F to befriend"
-            : self.autoTarget === opponent.id
-              ? `ATTACKING · ${Math.round(distance(self, opponent))}m`
-              : `${Math.round(distance(self, opponent))}m · T or right-click to auto attack`
-          : "Tab to target an enemy · 1–6 to fight";
+        : warning
+          ? warning
+          : opponent && self
+            ? "species" in opponent && !!findSpecies(opponent.species).companion
+              ? captureGuidance(self, opponent, profile.inventory.capsule ?? 0)
+              : self.autoTarget === opponent.id
+                ? `ATTACKING · ${Math.round(distance(self, opponent))}m`
+                : `${Math.round(distance(self, opponent))}m · T or right-click to auto attack`
+            : "Tab to target an enemy · 1–6 to fight";
   if (status.textContent !== text) status.textContent = text;
 }
 function interact() {
@@ -909,17 +1060,27 @@ function interact() {
 }
 
 const panelNames: Record<Panel, [string, string]> = {
-  collection: ["Good company.", "YOUR COMPANIONS"],
-  inventory: ["Ready for the trail.", "YOUR SATCHEL"],
-  shop: ["A little preparation.", "MIRA’S FIELD SUPPLY"],
-  quests: ["Stories worth following.", "EXPEDITION JOURNAL"],
-  map: ["Wonder in every direction.", "YOUR ISLAND GUIDE"],
-  arena: ["A friendly little rivalry.", "SUNSTONE ARENA"],
-  settings: ["Make yourself at home.", "YOUR PREFERENCES"],
-  credits: ["Made for the curious.", "FIELD NOTES & CREDITS"],
-  ledger: ["Every little reward.", "YOUR POKEMON DOLLARS"],
+  explorers: ["Island explorers", "ADVENTURE TOGETHER"],
+  appearance: ["Character", "YOUR ADVENTURER"],
+  pokedex: ["Pokédex", "YOUR POKÉDEX"],
+  collection: ["Pokémon team", "YOUR COMPANIONS"],
+  inventory: ["Inventory", "YOUR SATCHEL"],
+  shop: ["Mira’s field supply", "MIRA’S FIELD SUPPLY"],
+  quests: ["Quest journal", "EXPEDITION JOURNAL"],
+  map: ["World map", "YOUR ISLAND GUIDE"],
+  arena: ["Sunstone arena", "SUNSTONE ARENA"],
+  settings: ["Settings", "YOUR PREFERENCES"],
+  credits: ["Field notes & credits", "FIELD NOTES & CREDITS"],
+  ledger: ["Your wallet", "YOUR POKEMON DOLLARS"],
 };
 function openPanel(panel: Panel) {
+  audio.play(
+    panel === "quests" || panel === "map"
+      ? "page"
+      : panel === "inventory"
+        ? "bag"
+        : "open",
+  );
   lastFocus = document.activeElement as HTMLElement;
   activePanel = panel;
   renderPanel();
@@ -942,7 +1103,7 @@ async function loadRecords(path: string, setter: (value: unknown[]) => void) {
     setter(
       Array.isArray(result) ? result : result.entries || result.matches || [],
     );
-    if (activePanel) renderPanel(false);
+    if (activePanel && activePanel !== "appearance") renderPanel(false);
   } catch (error) {
     notify(
       error instanceof Error ? error.message : "Could not load records.",
@@ -951,13 +1112,31 @@ async function loadRecords(path: string, setter: (value: unknown[]) => void) {
   }
 }
 function closePanel() {
-  document.querySelector("#modal-root")!.innerHTML = "";
+  appearanceEditor?.dispose();
+  appearanceEditor = undefined;
+  if (activePanel) audio.play("close");
+  updateMarkup(document.querySelector("#modal-root")!, "");
   activePanel = null;
   lastFocus?.focus();
   if (playing && profile?.creatures.length) world.setPlaying(true);
 }
 function panelBody(panel: Panel): string {
   switch (panel) {
+    case "explorers":
+      return explorersPanel(
+        snapshot?.players ?? [],
+        profile?.id ?? "",
+        room?.roomId ?? "",
+      );
+    case "appearance":
+      return profile
+        ? `<p class="studio-location-note">Save your new look while resting in Hearthwick, outside combat.</p><div id="character-editor"></div>`
+        : empty(
+            "Begin your adventure",
+            "Your character studio will be available in town.",
+          );
+    case "pokedex":
+      return pokedexPanel(profile);
     case "settings":
       return settingsPanel();
     case "credits":
@@ -980,23 +1159,31 @@ function panelBody(panel: Panel): string {
 }
 function renderPanel(focus = true) {
   if (!activePanel) return;
+  appearanceEditor?.dispose();
+  appearanceEditor = undefined;
   const panel = activePanel;
   const content = panelBody(panel);
   const root = document.querySelector("#modal-root")!;
-  const scroll = root.querySelector(".panel-body")?.scrollTop || 0;
-  const focusedAction = (document.activeElement as HTMLElement)?.dataset.action;
-  root.innerHTML = `<div class="modal-backdrop"><section class="panel panel-${panel}" role="dialog" data-menu-open="true" aria-modal="true" aria-labelledby="panel-title"><header class="panel-header"><div><span class="eyebrow">${panelNames[panel][1]}</span><h2 id="panel-title">${panelNames[panel][0]}</h2></div>${button(icon("close"), "close", "icon-button close-button")}</header><div class="panel-body">${content}</div><footer class="panel-footer"><span>${playing ? "The shared world keeps moving while you browse." : "A small island. An extraordinary adventure."}</span><span><kbd>ESC</kbd> BACK TO ${playing ? "THE ISLAND" : "THE VIEW"}</span></footer></section></div>`;
+  const restore = preservePanel(root);
+  updateMarkup(
+    root,
+    `<div class="modal-backdrop"><section class="panel panel-${panel}" role="dialog" data-menu-open="true" aria-modal="true" aria-labelledby="panel-title"><header class="panel-header"><div><span class="eyebrow">${panelNames[panel][1]}</span><h2 id="panel-title">${panelNames[panel][0]}</h2></div>${button(icon("close"), "close", "icon-button close-button")}</header>${playing ? adventureNavigation(panel) : ""}<div class="panel-body">${content}</div><footer class="panel-footer"><span>${playing ? "The shared world keeps moving while you browse." : "A small island. An extraordinary adventure."}</span><span><kbd>ESC</kbd> BACK TO ${playing ? "THE ISLAND" : "THE VIEW"}</span></footer></section></div>`,
+  );
   root.querySelector(".close-button")?.setAttribute("aria-label", "Close menu");
   if (focus) (root.querySelector("button") as HTMLElement)?.focus();
-  else {
-    root.querySelector(".panel-body")!.scrollTop = scroll;
-    if (focusedAction) {
-      const previous = [
-        ...root.querySelectorAll<HTMLElement>("[data-action]"),
-      ].find((element) => element.dataset.action === focusedAction);
-      (previous || root.querySelector<HTMLElement>(".close-button"))?.focus();
-    }
-  }
+  else restore();
+
+  if (panel === "appearance" && profile)
+    appearanceEditor = mountCharacterCreator(
+      root.querySelector("#character-editor")!,
+      {
+        appearance: normalizeAppearance(profile.appearance),
+        classId: profile.classId ?? "knight",
+        nickname: profile.nickname,
+        editing: true,
+        onChange: () => {},
+      },
+    );
   if (panel === "map") updateMapPosition();
 }
 function locationNote(id: string) {
@@ -1030,10 +1217,8 @@ function creatureCard(creature: Creature) {
   const entry = findSpecies(creature.species);
   const team = profile!.team.includes(creature.id);
   const active = profile!.active === creature.id;
-  const evolution = entry.evolution as
-    | { name: string; level: number; cost: number }
-    | undefined;
-  return `<article class="creature-card"><div class="creature-card-top">${portrait(creature.species, creature.evolved)}<span class="tag">${active ? "DEPLOYED" : team ? "IN YOUR TEAM" : "AT THE LODGE"}</span></div><span class="eyebrow">${esc(entry.element)} · LEVEL ${creature.level} · ${esc(creature.trait)}</span><h3>${esc(creature.evolved && evolution ? evolution.name : creature.nickname || entry.name)}</h3><p>${esc(entry.description)}</p>${health(creature.hp, creature.maxHp)}<div class="card-stats"><span>${creature.hp}/${creature.maxHp} HP</span><span>${creature.xp} XP</span></div><div class="move-chips">${creature.moves.map((id) => `<span title="${esc(findAbility(id).description)}">${esc(findAbility(id).name)}</span>`).join("")}</div><div class="card-actions">${team ? button(active ? "Recall" : "Deploy", `deploy:${active ? "" : creature.id}`, "primary compact") + button("Store", `store:${creature.id}`, "secondary compact") + (profile!.team.indexOf(creature.id) > 0 ? button("Move first", `reorder:${creature.id}`, "text-button") : "") : button("Add to team", `add-team:${creature.id}`, "primary compact", profile!.team.length >= 3)}${evolution && !creature.evolved ? button(`Ascend · ${evolution.cost} ${currency}`, `evolve:${creature.id}`, "text-button", creature.level < evolution.level) : ""}</div>${evolution && !creature.evolved ? `<small class="subtle">Ascends to ${esc(evolution.name)} at level ${evolution.level}.</small>` : ""}</article>`;
+  const evolutions = POKEMON[creature.species]?.evolutions ?? [];
+  return `<article class="creature-card"><div class="creature-card-top">${portrait(creature.species, creature.evolved)}<span class="tag">${active ? "DEPLOYED" : team ? "IN YOUR TEAM" : "AT THE LODGE"}</span></div><span class="eyebrow">${esc(POKEMON[creature.species]?.types.join(" / ") ?? entry.element)} · LEVEL ${creature.level} · ${esc(creature.trait)}</span><h3>${esc(creatureName(creature))}</h3><p>${esc(entry.description)}</p>${health(creature.hp, creature.maxHp)}<div class="card-stats"><span>${creature.hp}/${creature.maxHp} HP</span><span>${creature.xp} XP</span></div><div class="card-actions">${team ? button(active ? "Recall" : "Deploy", `deploy:${active ? "" : creature.id}`, "secondary compact") + button("Store", `store:${creature.id}`, "secondary compact") + (profile!.team.indexOf(creature.id) > 0 ? button("Move first", `reorder:${creature.id}`, "text-button") : "") : button("Add to team", `add-team:${creature.id}`, "secondary compact", profile!.team.length >= 3)}${evolutions.map((evolution) => button(`Evolve to ${POKEMON[evolution.species].name} · 90 ${currency}`, `evolve:${creature.id}:${evolution.species}`, "text-button", creature.level < evolution.level || (!!evolution.item && !(profile!.inventory[evolution.item] > 0)))).join("")}</div>${pokemonStatsMarkup(creature)}<div class="pet-name-field"><label for="pet-name-${creature.id}">Companion name</label><div><input id="pet-name-${creature.id}" value="${esc(creature.nickname || "")}" placeholder="${esc(entry.name)}" maxlength="18" autocomplete="off"/>${button("Save name", `rename-pet:${creature.id}`, "secondary compact")}</div></div><div class="move-chips">${creature.moves.map((id) => `<span title="${esc(findAbility(id).description)}">${esc(findAbility(id).name)}</span>`).join("")}</div>${evolutions.map((evolution) => `<small class="subtle">Level ${evolution.level}${evolution.item ? ` · ${evolution.item.replaceAll("-", " ")}` : ""}${evolution.location ? ` · In the ${evolution.location}` : " · At the lodge"}</small>`).join("")}</article>`;
 }
 function inventoryPanel() {
   if (!profile)
@@ -1061,7 +1246,7 @@ function shopPanel() {
   return `${locationNote("shop")}<div class="shop-balance">Good preparation goes a long way.<span>${icon("coin")} ${profile?.balance.toLocaleString() || 0} ${esc(currency)}</span></div><div class="item-grid">${items()
     .map(
       (entry) =>
-        `<article class="item-card">${glyph(text(entry, "effect").includes("heal") ? "tide" : text(entry, "effect") === "tame" ? "spirit" : "leaf")}<div><span class="eyebrow">${esc(entry.effect)}</span><h3>${esc(entry.name)}</h3><p>${esc(entry.description)}</p><small class="subtle">In satchel: ${profile?.inventory[text(entry, "id")] || 0}</small></div>${button(`${number(entry, "price")} ${currency} ${icon("arrow")}`, `buy:${esc(entry.id)}`, "primary compact", !profile || profile.balance < number(entry, "price"))}</article>`,
+        `<article class="item-card">${glyph(text(entry, "effect").includes("heal") ? "tide" : text(entry, "effect") === "tame" ? "spirit" : "leaf")}<div><span class="eyebrow">${esc(entry.effect)}</span><h3>${esc(entry.name)}</h3><p>${esc(entry.description)}</p><small class="subtle">In satchel: ${profile?.inventory[text(entry, "id")] || 0}</small></div>${button(`${number(entry, "price")} ${currency} ${icon("arrow")}`, `buy:${esc(entry.id)}`, "secondary compact", !profile || profile.balance < number(entry, "price"))}</article>`,
     )
     .join("")}</div>`;
 }
@@ -1074,9 +1259,12 @@ function questsPanel() {
     : "";
 }
 function mapPanel() {
-  return worldMap(profile);
+  return worldMap(profile, snapshot?.time);
 }
 function updateMapPosition() {
+  const peers = document.querySelector("#map-explorers");
+  if (peers && snapshot)
+    updateMarkup(peers, explorerMapPins(snapshot.players, profile?.id ?? ""));
   const marker = document.querySelector<HTMLElement>("#map-player");
   const self = snapshot?.players.find((player) => player.id === profile?.id);
   if (marker && self) {
@@ -1089,7 +1277,10 @@ function arenaPanel() {
   const peers =
     snapshot?.players.filter((player) => player.id !== profile?.id) || [];
   const queued = snapshot?.queue.includes(profile?.id || "");
-  return `${locationNote("arena")}<div class="arena-intro"><div>${icon("arena")}<h3>A fair field. A friendly challenge.</h3><p>Companion levels are normalized for every duel. Both explorers must agree. The match ends on defeat, surrender, timeout, or disconnect.</p></div>${button(queued ? "Leave arena queue" : "Join arena queue", "queue", "primary", !profile)}</div><div class="social-presets"><span class="eyebrow">SAY A LITTLE SOMETHING</span>${["hello", "cheer", "thanks", "ready"].map((value) => button(value[0].toUpperCase() + value.slice(1), `emote:${value}`, "secondary compact")).join("")}</div><div class="section-heading"><h3>Fellow explorers</h3><span>${peers.length} nearby</span></div><div class="peer-list">${peers.map((player) => `<div class="peer-row">${icon("team")}<div><strong>${esc(player.nickname)}</strong><small>${player.duelId ? "In a duel" : "Exploring the island"}</small></div>${button("Invite to duel", `duel:${esc(player.id)}`, "secondary compact", !!player.duelId)}</div>`).join("") || '<p class="subtle">The next explorer is just around the corner. Invite a friend to join this server in a separate browser.</p>'}</div><div class="two-columns"><div><div class="section-heading"><h3>Your recent matches</h3></div>${
+  const self = snapshot?.players.find((p) => p.id === profile?.id);
+  const arena = PLACES.find((p) => p.id === "arena")!;
+  const atArena = self && distance(self, arena) <= 18;
+  return `<p class="subtle">${atArena ? "You can join the arena queue here." : "Visit Sunstone Arena for queued matches. Direct challenges work anywhere."}</p><div class="arena-intro"><div>${icon("arena")}<h3>A fair field. A friendly challenge.</h3><p>Trainers fight at level 10 with 180 health and all class abilities. Challenge a nearby explorer anywhere on the island; direct duels start where you stand. Companions rest during duels. Both explorers must agree. The match ends on defeat, surrender, timeout, or disconnect.</p></div>${button(queued ? "Leave arena queue" : "Join arena queue", "queue", "primary", !profile || (!queued && (!atArena || !!self?.duelId || !!self?.inCombat)))}</div><div class="social-presets"><span class="eyebrow">SAY A LITTLE SOMETHING</span>${["hello", "cheer", "thanks", "ready"].map((value) => button(value[0].toUpperCase() + value.slice(1), `emote:${value}`, "secondary compact")).join("")}</div>${trainingPanel()}<div class="section-heading"><h3>Fellow explorers</h3><span>${peers.length} on this island</span></div><div class="peer-list">${peers.map((player) => `<div class="peer-row">${icon("team")}<div><strong>${esc(player.nickname)}</strong><small>${player.duelId ? "In a duel" : (self && duelReach(self, player)) || "Ready for a challenge"}</small></div>${button("Invite to duel", `duel:${esc(player.id)}`, "secondary compact", !!player.duelId || !!self?.duelId || !!self?.inCombat || !!player.inCombat || !self || !!duelReach(self, player))}</div>`).join("") || '<p class="subtle">The next explorer is just around the corner. Invite a friend to join this server in a separate browser.</p>'}</div><div class="two-columns"><div><div class="section-heading"><h3>Your recent matches</h3></div>${
     latestMatches
       .slice(0, 8)
       .map((raw) => {
@@ -1124,7 +1315,15 @@ function ledgerPanel() {
 }
 function settingsPanel() {
   const range = (
-    key: "master" | "music" | "effects" | "sensitivity" | "scale",
+    key:
+      | "master"
+      | "music"
+      | "ambience"
+      | "effects"
+      | "interface"
+      | "creatures"
+      | "sensitivity"
+      | "scale",
     label: string,
     min: number,
     max: number,
@@ -1132,12 +1331,12 @@ function settingsPanel() {
   ) =>
     `<label class="setting-row"><span>${label}</span><input type="range" data-setting="${key}" min="${min}" max="${max}" step="${step}" value="${settings[key]}"/><output>${Math.round(settings[key] * 100)}%</output></label>`;
   const toggle = (
-    key: "mute" | "reducedMotion" | "cameraShake",
+    key: "mute" | "backgroundAudio" | "reducedMotion" | "cameraShake",
     label: string,
     detail: string,
   ) =>
     `<label class="setting-row"><span>${label}<small>${detail}</small></span><input type="checkbox" data-setting="${key}" ${settings[key] ? "checked" : ""}/></label>`;
-  return `<div class="settings-columns"><div><h3>Sound & atmosphere</h3>${range("master", "Master volume", 0, 1, 0.05)}${range("music", "Island music", 0, 1, 0.05)}${range("effects", "Effects & interface", 0, 1, 0.05)}${toggle("mute", "Mute all sound", "You can always follow visual cues.")}<h3>Comfort & display</h3><label class="setting-row"><span>Visual quality</span><select data-setting="quality">${["low", "medium", "high"].map((value) => `<option ${settings.quality === value ? "selected" : ""} value="${value}">${value[0].toUpperCase() + value.slice(1)}</option>`).join("")}</select></label>${range("scale", "Interface scale", 0.85, 1.25, 0.05)}${toggle("reducedMotion", "Reduced motion", "Reduce movement in the interface and world.")} ${toggle("cameraShake", "Camera shake", "Gentle impact feedback during combat.")}</div><div><h3>Camera & controls</h3>${range("sensitivity", "Camera sensitivity", 0.3, 2, 0.1)}<p class="subtle">Click a binding and press a new key. Menus capture your input. The shared world does not pause.</p><div class="keybind-list">${Object.entries(
+  return `<div class="settings-columns"><div><h3>Sound & atmosphere</h3>${range("master", "Master volume", 0, 1, 0.05)}${range("music", "Island music", 0, 1, 0.05)}${range("ambience", "Nature & environment", 0, 1, 0.05)}${range("effects", "Combat & footsteps", 0, 1, 0.05)}${range("creatures", "Creature voices", 0, 1, 0.05)}${range("interface", "Interface & rewards", 0, 1, 0.05)}${toggle("mute", "Mute all sound", "You can always follow visual cues.")}${toggle("backgroundAudio", "Sound in background", "Keep audio playing when you switch tabs.")}<p class="subtle">Music follows the region and combat. Nature gets quieter at night; nearby water and fires have their own sound.</p><h3>Comfort & display</h3><label class="setting-row"><span>Visual quality</span><select data-setting="quality">${["low", "medium", "high"].map((value) => `<option ${settings.quality === value ? "selected" : ""} value="${value}">${value[0].toUpperCase() + value.slice(1)}</option>`).join("")}</select></label>${range("scale", "Interface scale", 0.85, 1.25, 0.05)}${toggle("reducedMotion", "Reduced motion", "Reduce movement in the interface and world.")} ${toggle("cameraShake", "Camera shake", "Gentle impact feedback during combat.")}</div><div><h3>Camera & controls</h3>${range("sensitivity", "Camera sensitivity", 0.3, 2, 0.1)}<p class="subtle">Click a binding and press a new key. Menus capture your input. The shared world does not pause.</p><div class="keybind-list">${Object.entries(
     settings.keybinds,
   )
     .map(
@@ -1146,35 +1345,76 @@ function settingsPanel() {
     )
     .join(
       "",
-    )}</div><p class="subtle">Drag / Q / R: orbit camera · Scroll: zoom<br />1–6: abilities · T / right-click: auto attack · Tab / Shift+Tab: cycle targets · Esc: clear target · Space: dash · Alt: jump<br />C: collection · B: inventory · J: journal · M: map · H: hello</p>${button("Reset preferences", "reset-settings", "secondary compact")}</div></div>`;
+    )}</div><p class="subtle">Drag / Q / R: orbit camera · Scroll: zoom<br />1–6: abilities · T / right-click: auto attack · Tab / Shift+Tab: cycle targets · Esc: clear target · Space: dash · Alt: jump<br />Ctrl+1–4: companion moves · Shift+1–3: switch Pokémon · G: attack · H: follow<br />C: team · P: Pokédex · B: bag · J: journal · M: map</p>${button("Reset preferences", "reset-settings", "secondary compact")}${performanceMarkup()}</div></div>`;
 }
 function creditsPanel() {
-  return `<div class="credits-lead">${icon("leaf")}<h3>Leave a little room<br />for wonder.</h3><p>A fantasy adventure with Pokémon companions, built around friendship, exploration, and a shared island.</p></div><div class="two-columns"><div><h3>Art & world</h3><p>Original island composition, interface, visual effects, and creature identities.</p><p>Characters and weapons by Kay Lousberg (KayKit Adventurers, CC0). Wildlife and scenery by Quaternius: Ultimate Monsters, Ultimate Modular Men, Stylized Nature MegaKit, Medieval Village MegaKit, Medieval Village, and Fantasy Props MegaKit. Licensed CC0. Local asset details and license copies are included in the project’s asset manifest.</p></div><div><h3>Sound & technology</h3><p>Original synthesized island music, interface tones, footsteps, and combat sounds.</p><p>Rendered with Babylon.js. Multiplayer powered by Colyseus. Built with TypeScript and Vite.</p><p>The working title and in-game currency are configurable. Pokémon models and characters belong to Nintendo, Creatures Inc. and GAME FREAK inc. Model source: Pokémon 3D API. These assets are not covered by the CC0 environment license.</p><p><a href="/legal/SOFTWARE_LICENSES.txt" target="_blank" rel="noreferrer">Software license notices</a> · <a href="/inspect.html" target="_blank" rel="noreferrer">Creature atelier</a></p></div></div><div class="notice">${icon("journal")}<span><strong>Your first field notes</strong><br />Choose a starter. Visit the expedition board. Head out toward the meadow. Press Tab to target an enemy, T or right-click to auto attack and 1–6 for class abilities; G sends your companion; weaken it, then press F to attempt taming.</span></div>`;
+  return `<div class="credits-lead">${icon("leaf")}<h3>Leave a little room<br />for wonder.</h3><p>A fantasy adventure with Pokémon companions, built around friendship, exploration, and a shared island.</p></div><div class="two-columns"><div><h3>Art & world</h3><p>Original island composition, interface, visual effects, and creature identities.</p><p>Modular player characters, hairstyles, clothing and animations by Quaternius (CC0). Weapons and village characters by Kay Lousberg (KayKit Adventurers, CC0). <a href="/legal/CHARACTER_CREDITS.txt" target="_blank" rel="noreferrer">Character sources and modifications</a>. <a href="/character-studio.html" target="_blank" rel="noreferrer">Preview the character studio</a>. Wildlife and scenery by Quaternius: Ultimate Monsters, Ultimate Modular Men, Stylized Nature MegaKit, Medieval Village MegaKit, Medieval Village, Fantasy Props MegaKit, Ultimate Stylized Nature and Pirate Kit. Additional nature and castle props by Kenney. Licensed CC0. Local asset details and license copies are included in the project’s asset manifest.</p></div><div><h3>Sound & technology</h3><p>Music by RandomMind and troubadour. Nature recordings by Thimras, LokiF, RandomMind, AntumDeluge and Kresiek The Furry. Effects by Kenney, rubberduck, artisticdude, bart, Fantozzi/qubodup and Peludo/RNAn. All sourced under CC0, edited and mixed for the game. Creature voices are fantasy effects, not official Pokémon cries. <a href="/legal/AUDIO_CREDITS.txt" target="_blank" rel="noreferrer">Full audio credits and sources</a>. <a href="/sound-studio.html" target="_blank" rel="noreferrer">Visit the sound studio</a>.</p><p>Rendered with Babylon.js. Multiplayer powered by Colyseus. Built with TypeScript and Vite.</p><p>The working title and in-game currency are configurable. Pokémon models and characters belong to Nintendo, Creatures Inc. and GAME FREAK inc. Model source: Pokémon 3D API. These assets are not covered by the CC0 environment license.</p><p><a href="/legal/SOFTWARE_LICENSES.txt" target="_blank" rel="noreferrer">Software license notices</a> · <a href="/inspect.html" target="_blank" rel="noreferrer">Creature atelier</a> · <a href="/world-tour.html" target="_blank" rel="noreferrer">Explore the regions</a></p></div></div><div class="notice">${icon("journal")}<span><strong>Your first field notes</strong><br />Choose a starter. Visit the expedition board. Head out toward the meadow. Press Tab to target an enemy, T or right-click to auto attack and 1–6 for class abilities; G sends your companion; weaken it, then press F to attempt taming.</span></div>`;
 }
 
 let binding: string | null = null;
 async function handleAction(action: string) {
-  audio.play();
+  void audio.start();
+  audio.play("ui");
   const [name, ...parts] = action.split(":");
   const value = parts.join(":");
   switch (name) {
+    case "dex-reward":
+      send("dexReward", { count: Number(value) });
+      break;
+    case "petmove":
+      send("petMove", { slot: Number(value), ...(target ? { target } : {}) });
+      break;
+    case "swap":
+      send("swap", { slot: Number(value) });
+      break;
     case "start":
     case "reconnect":
       await connect();
       break;
     case "panel":
+      document.querySelector("#caught-card")?.remove();
       openPanel(value as Panel);
       break;
     case "close":
       closePanel();
       break;
+    case "appearance-save": {
+      if (!appearanceEditor) break;
+      const nickname = cleanDisplayName(appearanceEditor.nickname);
+      if (!validDisplayName(nickname)) {
+        notify(
+          "Use 2–18 letters, numbers, spaces, apostrophes or hyphens for your name.",
+          "error",
+        );
+        break;
+      }
+      send("appearance", { appearance: appearanceEditor.appearance, nickname });
+      break;
+    }
+    case "rename-pet": {
+      const field = document.getElementById(
+        `pet-name-${value}`,
+      ) as HTMLInputElement | null;
+      if (!field) break;
+      const nickname = cleanDisplayName(field.value);
+      if (nickname && !validDisplayName(nickname, 1)) {
+        notify(
+          "Use up to 18 letters, numbers, spaces, apostrophes or hyphens.",
+          "error",
+        );
+        break;
+      }
+      send("renamePet", { creature: value, nickname });
+      break;
+    }
     case "class-select":
       if (CLASS_IDS.includes(value as ClassId))
         selectedClass = value as ClassId;
-      starterScreen();
+      characterCreator?.setClass(selectedClass);
       break;
     case "class-confirm":
-      if (profile?.creatures.length) send("class", { classId: selectedClass });
+      if (profile?.creatures.length)
+        send("class", { classId: selectedClass, appearance: draftAppearance });
       else {
         classChosen = true;
         starterScreen();
@@ -1191,8 +1431,16 @@ async function handleAction(action: string) {
       selectedStarter = value;
       starterScreen();
       break;
+    case "starter-back":
+      classChosen = false;
+      starterScreen();
+      break;
     case "starter-confirm":
-      send("starter", { species: selectedStarter, classId: selectedClass });
+      send("starter", {
+        species: selectedStarter,
+        classId: selectedClass,
+        appearance: draftAppearance,
+      });
       break;
     case "ability":
       attack(Number(value));
@@ -1236,10 +1484,23 @@ async function handleAction(action: string) {
       });
       break;
     case "evolve":
-      send("evolve", { id: value });
+      send("evolve", {
+        id: parts[0],
+        ...(parts[1] ? { species: parts[1] } : {}),
+      });
+      break;
+    case "practice-reset":
+      send("practiceReset");
+      break;
+    case "practice-target":
+      if (TRAINING_TARGETS.some((t) => t.id === value)) {
+        selectTarget(value);
+        closePanel();
+      }
       break;
     case "duel":
       send("duel", { target: value });
+      closePanel();
       break;
     case "duelAccept":
     case "duelReject":
@@ -1261,6 +1522,38 @@ async function handleAction(action: string) {
       document.querySelector("#start-label")!.textContent =
         "Begin your adventure";
       await connect();
+      break;
+    case "greet-companion": {
+      const self = snapshot?.players.find((p) => p.id === profile?.id);
+      if (
+        !self?.companion ||
+        self.hp <= 0 ||
+        (self.pet?.hp ?? 1) <= 0 ||
+        self.inCombat ||
+        self.duelId
+      ) {
+        combatError(
+          "Greet your companion while resting safely outside combat.",
+        );
+        break;
+      }
+      send("emote", { value: "hello" });
+      break;
+    }
+    case "invite-friend":
+      if (room) {
+        const invitation = islandInvite(location.origin, room.roomId);
+        try {
+          await navigator.clipboard.writeText(invitation);
+          notify(
+            "Invitation link copied. Your friend can choose their explorer and join this island.",
+          );
+        } catch {
+          const output = document.querySelector("#invite-fallback");
+          if (output)
+            output.textContent = `Copy this invitation: ${invitation}`;
+        }
+      }
       break;
     case "copy-room":
       if (room) {
@@ -1380,9 +1673,12 @@ window.addEventListener(
     if (activePanel && event.key === "Tab") {
       const elements = [
         ...document.querySelectorAll<HTMLElement>(
-          '[role="dialog"] button:not([disabled]), [role="dialog"] input, [role="dialog"] select',
+          '[role="dialog"] :is(button, input, select, a[href], summary):not([disabled])',
         ),
-      ];
+      ].filter(
+        (element) =>
+          element.tabIndex >= 0 && element.getClientRects().length > 0,
+      );
       const first = elements[0];
       const last = elements[elements.length - 1];
       if (event.shiftKey && document.activeElement === first) {
@@ -1401,16 +1697,22 @@ window.addEventListener(
       event.repeat
     )
       return;
+    if ((event.ctrlKey || event.shiftKey) && /^Digit[1-4]$/.test(event.code)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const slot = Number(event.code.slice(-1)) - 1;
+      if (event.ctrlKey)
+        send("petMove", { slot, ...(target ? { target } : {}) });
+      else if (slot < 3) send("swap", { slot });
+      return;
+    }
     const panelKey: Record<string, Panel> = {
+      KeyP: "pokedex",
       KeyC: "collection",
       KeyB: "inventory",
       KeyJ: "quests",
       KeyM: "map",
     };
-    if (event.code === "KeyH") {
-      send("emote", { value: "hello" });
-      return;
-    }
     if (panelKey[event.code]) {
       event.preventDefault();
       openPanel(panelKey[event.code]);
@@ -1427,33 +1729,42 @@ window.addEventListener("beforeunload", () => {
 document.title = `${title} — ${BRAND.subtitle}`;
 shell();
 saveSettings();
-void createWorld(canvas, {
-  onTarget: selectTarget,
-  onMove(dx, dz, sprint, yaw) {
-    if (!connected || activePanel || !profile?.creatures.length) return;
-    room?.send("command", { kind: "move", dx, dz, sprint, yaw });
-  },
-  onInteract: interact,
-  onAbility: attack,
-  onDash: (dx, dz) => {
-    if (connected && playing && !activePanel) send("dash", { dx, dz });
-  },
-  onStep: () => audio.play("step"),
-  onImpact: (event) => audio.playImpact(event, profile?.id),
-  onAutoAttack(id) {
-    selectTarget(id);
-    if (connected && playing && !activePanel) {
-      lastAttackSent = Date.now();
-      send("autoattack", { target: id });
-    }
-  },
-  onTame() {
-    send("tame", { target, item: "capsule" });
-  },
-})
-  .then((instance) => {
+const interfaceReady = prepareInterface();
+void interfaceReady.catch(failLoading);
+void startup
+  .track("scene", "world", "Island lighting & first frame", () =>
+    createWorld(canvas, {
+      onTarget: selectTarget,
+      onMove(dx, dz, sprint, yaw) {
+        if (!connected || activePanel || !profile?.creatures.length) return;
+        room?.send("command", { kind: "move", dx, dz, sprint, yaw });
+      },
+      onInteract: interact,
+      onAbility: attack,
+      onDash: (dx, dz) => {
+        if (connected && playing && !activePanel) send("dash", { dx, dz });
+      },
+      onStep: (point, landing, sprint) => audio.step(point, landing, sprint),
+      onJump: () => audio.play("jump"),
+      onListener: (point, alpha) => audio.setListener(point, alpha),
+      onImpact: (event) => audio.playImpact(event),
+      onAutoAttack(id) {
+        selectTarget(id);
+        if (connected && playing && !activePanel) {
+          lastAttackSent = Date.now();
+          send("autoattack", { target: id });
+        }
+      },
+      onTame() {
+        send("tame", { target, item: "capsule" });
+      },
+    }),
+  )
+  .then(async (instance) => {
     world = instance;
+    await interfaceReady;
     saveSettings();
+    finishLoading();
     document.querySelector<HTMLButtonElement>("#start")!.disabled = false;
     document.querySelector("#start-label")!.textContent = localStorage.getItem(
       "island.token",
@@ -1464,6 +1775,9 @@ void createWorld(canvas, {
       '<span class="live-dot"></span> Your island is ready';
   })
   .catch((error) => {
+    world?.dispose();
+    world = undefined!;
+    failLoading();
     document.querySelector("#loading-status")!.textContent =
       "The island could not load. Refresh to try again.";
     notify(
@@ -1474,3 +1788,13 @@ void createWorld(canvas, {
     );
   });
 setInterval(refreshCombatControls, 80);
+
+document.addEventListener("change", (event) => {
+  const element = event.target as HTMLSelectElement;
+  if (element.dataset.learnCreature)
+    send("learn", {
+      creature: element.dataset.learnCreature,
+      slot: Number(element.dataset.learnSlot),
+      move: element.value,
+    });
+});

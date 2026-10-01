@@ -4,51 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Creature atelier — Asset inspection</title>
-    <style>
-      body {
-        margin: 0;
-        background: #243d35;
-        color: #f0e5ce;
-        font: 14px system-ui;
-      }
-      canvas {
-        width: calc(100vw - 390px);
-        margin-left: 390px;
-        height: 100vh;
-        display: block;
-      }
-      aside {
-        position: absolute;
-        top: 20px;
-        left: 20px;
-        max-width: 310px;
-        padding: 24px;
-        background: #192f29e8;
-        border: 1px solid #b5c09a66;
-        border-radius: 16px;
-      }
-      h1 {
-        font: 30px Georgia;
-        margin: 0 0 12px;
-      }
-      button {
-        border: 1px solid #b5c09a66;
-        color: #f0e5ce;
-        background: #527364;
-        padding: 8px 12px;
-        border-radius: 7px;
-        margin: 3px;
-        cursor: pointer;
-      }
-      p {
-        line-height: 1.5;
-      }
-      a {
-        color: #ece6ae;
-      }
-    </style>
+    <link rel="stylesheet" href="/src/tool-pages.css" />
   </head>
-  <body>
+  <body class="tool-inspect">
     <canvas id="atelier"></canvas>
     <aside>
       <h1>The creature atelier</h1>

@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import pg from "pg";
+import type pg from "pg";
+import { createDatabasePool } from "./database-pool.js";
+import { HttpError } from "./errors.js";
 import { BRAND } from "../../../packages/shared/data.js";
 import { validateProfile, normalizeProfile } from "./profile.js";
 import type {
@@ -9,11 +11,9 @@ import type {
 } from "../../../packages/shared/types.js";
 import "dotenv/config";
 
-export const pool = new pg.Pool({
-  connectionString:
-    process.env.DATABASE_URL ?? "postgresql://localhost:5432/pokemon_dollars",
-  max: 12,
-});
+export const pool = createDatabasePool(
+  process.env.DATABASE_URL ?? "postgresql://localhost:5432/pokemon_dollars",
+);
 export const schema = `
 CREATE TABLE IF NOT EXISTS schema_migrations (version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
 INSERT INTO schema_migrations(version) VALUES(1) ON CONFLICT DO NOTHING;
@@ -27,22 +27,26 @@ CREATE INDEX IF NOT EXISTS ledger_player_time ON ledger(player_id, created_at DE
 CREATE INDEX IF NOT EXISTS matches_a ON matches(a);
 CREATE INDEX IF NOT EXISTS matches_b ON matches(b);
 CREATE INDEX IF NOT EXISTS matches_time ON matches(created_at DESC);
+CREATE INDEX IF NOT EXISTS matches_winner_time ON matches(winner, created_at DESC);
+CREATE INDEX IF NOT EXISTS players_rank ON players(((profile->>'wins')::int) DESC, ((profile->>'losses')::int), id) WHERE COALESCE((profile->'quests'->>'duels')::int,0)>0;
 CREATE OR REPLACE FUNCTION protect_ledger() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'ledger is append only'; END $$;
 DROP TRIGGER IF EXISTS ledger_append_only ON ledger;
 CREATE TRIGGER ledger_append_only BEFORE UPDATE OR DELETE ON ledger FOR EACH ROW EXECUTE FUNCTION protect_ledger();
 `;
 export async function migrate() {
   const client = await pool.connect();
+  let failed = false;
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(8716501)");
     await client.query(schema);
     await client.query("COMMIT");
   } catch (error) {
+    failed = true;
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
-    client.release();
+    client.release(failed);
   }
 }
 export function tokenHash(token: string) {
@@ -50,12 +54,12 @@ export function tokenHash(token: string) {
 }
 export async function authenticate(token: unknown): Promise<Profile> {
   if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token))
-    throw new Error("Invalid session. Start a new journey.");
+    throw new HttpError(401, "Invalid session. Start a new journey.");
   const result = await pool.query(
     "SELECT profile FROM players WHERE token_hash=$1",
     [tokenHash(token)],
   );
-  if (!result.rows[0]) throw new Error("Session not found.");
+  if (!result.rows[0]) throw new HttpError(401, "Session not found.");
   return normalizeProfile(result.rows[0].profile as Profile);
 }
 export async function session(nickname: string, existing?: string) {
@@ -77,6 +81,7 @@ export async function session(nickname: string, existing?: string) {
     losses: 0,
   };
   const client = await pool.connect();
+  let failed = false;
   try {
     await client.query("BEGIN");
     await client.query(
@@ -90,12 +95,13 @@ export async function session(nickname: string, existing?: string) {
     ]);
     await client.query("COMMIT");
   } catch (error) {
+    failed = true;
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
-    client.release();
+    client.release(failed);
   }
-  return { token, profile: await authenticate(token) };
+  return { token, profile: normalizeProfile(profile) };
 }
 export class Transaction {
   constructor(readonly client: pg.PoolClient) {}
@@ -135,6 +141,7 @@ export async function mutate(
   action: (profile: Profile, tx: Transaction) => Promise<unknown> | unknown,
 ): Promise<{ profile: Profile; applied: boolean }> {
   const client = await pool.connect();
+  let failed = false;
   let released = false;
   let commitStarted = false;
   let actionApplied = false;
@@ -166,9 +173,10 @@ export async function mutate(
     await client.query("COMMIT");
     return { profile, applied: true };
   } catch (error) {
+    failed = true;
     await client.query("ROLLBACK").catch(() => {});
     if (commitStarted) {
-      client.release();
+      client.release(true);
       released = true;
       const receipt = await pool.query(
         "SELECT p.profile FROM players p JOIN requests r ON r.player_id=p.id WHERE p.id=$1 AND r.request_id=$2",
@@ -182,7 +190,7 @@ export async function mutate(
     }
     throw error;
   } finally {
-    if (!released) client.release();
+    if (!released) client.release(failed);
   }
 }
 export async function ledger(id: string): Promise<LedgerEntry[]> {
@@ -201,9 +209,23 @@ export async function history(id: string): Promise<MatchEntry[]> {
 }
 export async function leaderboard() {
   const result = await pool.query(
-    `SELECT p.profile->>'nickname' AS nickname,COUNT(*) FILTER(WHERE m.winner=p.id)::int AS wins,COUNT(*) FILTER(WHERE m.winner IS NOT NULL AND m.winner<>p.id)::int AS losses FROM players p JOIN matches m ON m.a=p.id OR m.b=p.id GROUP BY p.id ORDER BY wins DESC,losses ASC LIMIT 20`,
+    `SELECT profile->>'nickname' AS nickname,(profile->>'wins')::int AS wins,(profile->>'losses')::int AS losses FROM players WHERE COALESCE((profile->'quests'->>'duels')::int,0)>0 ORDER BY wins DESC,losses ASC,id LIMIT 20`,
   );
   return result.rows;
+}
+async function readMatch(
+  id: string,
+  client: Pick<pg.PoolClient, "query"> = pool,
+) {
+  const result = await client.query(
+    "SELECT winner,reason,(SELECT jsonb_agg(profile) FROM players WHERE id IN (m.a,m.b)) AS profiles FROM matches m WHERE id=$1",
+    [id],
+  );
+  const row = result.rows[0] as
+    | { winner: string | null; reason: string; profiles: Profile[] }
+    | undefined;
+  if (!row) return undefined;
+  return { ...row, profiles: row.profiles.map(normalizeProfile) };
 }
 export async function recordMatch(
   id: string,
@@ -213,6 +235,7 @@ export async function recordMatch(
   reason: string,
 ) {
   const client = await pool.connect();
+  let failed = false;
   let released = false;
   let commitStarted = false;
   try {
@@ -225,6 +248,16 @@ export async function recordMatch(
       "INSERT INTO matches(id,a,b,winner,reason) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING id",
       [id, a, b, winner, reason],
     );
+    let reward = false;
+    if (insert.rowCount && winner && reason === "defeat") {
+      const counts = await client.query(
+        `SELECT (SELECT COUNT(*) FROM matches WHERE winner=$1 AND created_at>now()-interval '1 day') AS wins,
+        (SELECT COUNT(*) FROM matches WHERE ((a=$2 AND b=$3) OR (a=$3 AND b=$2)) AND created_at>now()-interval '1 day') AS repeats`,
+        [winner, a, b],
+      );
+      reward =
+        Number(counts.rows[0].wins) <= 5 && Number(counts.rows[0].repeats) <= 2;
+    }
     if (insert.rowCount)
       for (const row of locked.rows) {
         const p = row.profile as Profile;
@@ -232,20 +265,7 @@ export async function recordMatch(
           if (p.id === winner) p.wins++;
           else p.losses++;
         }
-        const count = await client.query(
-          `SELECT COUNT(*)::int AS n FROM matches WHERE winner=$1 AND created_at > now()-interval '1 day'`,
-          [p.id],
-        );
-        const repeats = await client.query(
-          `SELECT COUNT(*)::int AS n FROM matches WHERE ((a=$1 AND b=$2) OR (a=$2 AND b=$1)) AND created_at > now()-interval '1 day'`,
-          [a, b],
-        );
-        if (
-          winner === p.id &&
-          count.rows[0].n <= 5 &&
-          repeats.rows[0].n <= 2 &&
-          reason === "defeat"
-        )
+        if (reward && winner === p.id)
           await new Transaction(client).credit(
             p,
             30,
@@ -258,28 +278,23 @@ export async function recordMatch(
           p,
         ]);
       }
-    const result = await client.query(
-      "SELECT winner,reason FROM matches WHERE id=$1",
-      [id],
-    );
+    const result = await readMatch(id, client);
+    if (!result) throw new Error("Match result missing.");
     commitStarted = true;
     await client.query("COMMIT");
-    return result.rows[0] as { winner: string | null; reason: string };
+    return result;
   } catch (error) {
+    failed = true;
     await client.query("ROLLBACK").catch(() => {});
     if (commitStarted) {
-      client.release();
+      client.release(true);
       released = true;
-      const result = await pool.query(
-        "SELECT winner,reason FROM matches WHERE id=$1",
-        [id],
-      );
-      if (result.rows[0])
-        return result.rows[0] as { winner: string | null; reason: string };
+      const result = await readMatch(id);
+      if (result) return result;
     }
     throw error;
   } finally {
-    if (!released) client.release();
+    if (!released) client.release(failed);
   }
 }
 export async function getProfile(id: string): Promise<Profile> {

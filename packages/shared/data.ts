@@ -1,3 +1,6 @@
+import { POKEMON } from "./pokemon";
+import { POKEMON_MOVES } from "./pokemon-moves";
+import { TYPE_COLORS, TYPE_ELEMENTS } from "./pokemon-types";
 import { STORY_PLACES } from "./story";
 export { QUESTS, type Quest } from "./story";
 export { SPAWNS, type Spawn } from "./encounters";
@@ -5,7 +8,7 @@ import { REGIONS, WAYSTONES, WORLD_RADIUS } from "./regions";
 import { CLASSES } from "./classes";
 import type { Biome, Element } from "./types";
 export const BRAND = {
-  title: "Pokemon Dollars",
+  title: "World of Pokémon",
   subtitle: "The Wildlight Isles",
   currency: "PD",
   island: "Aster Isle",
@@ -280,6 +283,19 @@ export interface Species {
 }
 const speciesRows: Species[] = [
   {
+    id: "training-dummy",
+    name: "Training dummy",
+    element: "stone",
+    biome: "town",
+    baseHp: 3000,
+    power: 0,
+    difficulty: 0,
+    moves: [],
+    description:
+      "A wooden practice target. No damage, capture or encounter rewards.",
+    color: "#c89e64",
+  },
+  {
     id: "spriglet",
     name: "Spriglet",
     element: "leaf",
@@ -439,44 +455,36 @@ const speciesRows: Species[] = [
     color: "#d9cc8a",
   },
 ];
-export const COMPANIONS: Species[] = [
-  {
-    ...speciesRows[0],
-    id: "bulbasaur",
-    name: "Bulbasaur",
-    starter: true,
-    companion: true,
-    description:
-      "A loyal Grass-type Pokémon. Vines entangle enemies while its bulb gathers sunlight.",
-    evolution: { name: "Ivysaur", level: 6, cost: 90 },
-  },
-  {
-    ...speciesRows[1],
-    id: "charmander",
-    name: "Charmander",
-    starter: true,
-    companion: true,
-    description:
-      "A brave Fire-type Pokémon. Its burning tail lights the trail and its embers scorch enemies.",
-    evolution: { name: "Charmeleon", level: 6, cost: 90 },
-  },
-  {
-    ...speciesRows[2],
-    id: "squirtle",
-    name: "Squirtle",
-    starter: true,
-    companion: true,
-    description:
-      "A dependable Water-type Pokémon. Water jets slow enemies and its shell withstands danger.",
-    evolution: { name: "Wartortle", level: 6, cost: 90 },
-  },
-];
+export const COMPANIONS: Species[] = Object.values(POKEMON).map((p) => ({
+  id: p.id,
+  name: p.name,
+  element: TYPE_ELEMENTS[p.types[0]],
+  biome: p.habitat,
+  baseHp: p.baseStats.hp,
+  power: p.baseStats.attack / 5,
+  difficulty: 1 - p.catchRate / 255,
+  moves: p.learnset.slice(0, 4).map((entry) => entry.move),
+  description: p.entry,
+  color: TYPE_COLORS[p.types[0]],
+  starter: ["bulbasaur", "charmander", "squirtle"].includes(p.id),
+  companion: true,
+  ...(p.evolutions[0]
+    ? {
+        evolution: {
+          name: POKEMON[p.evolutions[0].species].name,
+          level: p.evolutions[0].level,
+          cost: 90,
+        },
+      }
+    : {}),
+}));
+Object.assign(ABILITIES, POKEMON_MOVES);
 for (const c of Object.values(CLASSES))
   for (const ability of c.abilities) ABILITIES[ability.id] = ability;
 export const SPECIES: Record<string, Species> = Object.fromEntries(
   [...speciesRows, ...COMPANIONS].map((s) => [s.id, s]),
 );
-export const STARTERS = COMPANIONS.map((s) => s.id);
+export const STARTERS = COMPANIONS.filter((s) => s.starter).map((s) => s.id);
 export interface Item {
   id: string;
   name: string;
@@ -561,6 +569,20 @@ export const ITEMS: Record<string, Item> = Object.fromEntries(
     },
   ].map((i) => [i.id, i]),
 );
+for (const [id, name] of [
+  ["water-stone", "Water Stone"],
+  ["fire-stone", "Fire Stone"],
+  ["thunder-stone", "Thunder Stone"],
+])
+  ITEMS[id] = {
+    id,
+    name,
+    price: 60,
+    effect: "evolution",
+    value: 1,
+    description:
+      "An evolution stone for Eevee. Use it from the Companions panel at the lodge.",
+  };
 export interface Place {
   id: string;
   name: string;
@@ -615,7 +637,8 @@ export const PLACES: Place[] = [
     z: -13,
     kind: "arena",
     biome: "town",
-    description: "Friendly, normalized companion duels.",
+    description:
+      "Friendly level-10 trainer duels, spectator seating and a practice yard.",
   },
   {
     id: "meadow",

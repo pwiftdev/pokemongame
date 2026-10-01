@@ -1,3 +1,5 @@
+import { createPokemonEffects } from "./pokemon-effects";
+import { createPokemonMoments } from "./pokemon-moments";
 import { createFlameMaterial } from "./fire";
 import { projectileDuration } from "./combat-motion";
 import { createEffectPool } from "./effect-pool";
@@ -40,12 +42,10 @@ export function createCombatEffects(
   };
   const materials = createEffectMaterials(scene);
   const material = materials.get;
-  const { ring, glow, burst, text, impact, status } = createCombatPrimitives(
-    scene,
-    materials,
-    track,
-    onImpact,
-  );
+  const primitives = createCombatPrimitives(scene, materials, track, onImpact);
+  const { ring, glow, burst, text, impact, status } = primitives;
+  const pokemon = createPokemonEffects(scene, pool, materials, primitives);
+  const moments = createPokemonMoments(scene, pool, materials, primitives);
   function weaponStrike(
     event: GameEvent,
     from: Vector3,
@@ -223,7 +223,12 @@ export function createCombatEffects(
     element: Element,
     follow?: () => Vector3 | undefined,
     windup = 0,
+    size = 1,
   ) {
+    if (pokemon.cast(event, from, to, size)) {
+      if (event.type === "impact") onImpact(event);
+      return;
+    }
     const ability = ABILITIES[event.ability ?? ""];
     const color = colors[ability?.element ?? element];
     const rangedAuto =
@@ -409,6 +414,8 @@ export function createCombatEffects(
     ring(from, color, 1, 0.3);
   }
   return {
+    captureSequence: moments.capture,
+    evolve: moments.evolve,
     cast,
     interrupt,
     /** An automatic weapon swing: a light slash and the impact once the blade connects. */

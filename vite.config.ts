@@ -10,8 +10,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 1800,
     rollupOptions: {
       input: {
+        characterStudio: resolve("apps/client/character-studio.html"),
+        soundStudio: resolve("apps/client/sound-studio.html"),
         main: resolve("apps/client/index.html"),
         inspect: resolve("apps/client/inspect.html"),
+        worldTour: resolve("apps/client/world-tour.html"),
+        pokemonBenchmark: resolve("apps/client/pokemon-benchmark.html"),
       },
     },
   },

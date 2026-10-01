@@ -24,7 +24,9 @@ Required Heroku configuration:
 
 Heroku terminates HTTPS. The app trusts exactly one proxy hop for client IPs, redirects HTTP to its configured HTTPS origin, sets HSTS and compresses text responses. HTML is revalidated after deployments. `.env`, local evidence and editor configuration are excluded from Git; development artifacts are excluded from the Heroku slug.
 
-Deploy committed changes and inspect the app:
+The 2026-09-30 Pokémon and interface releases use Heroku’s Sources and Builds APIs to deploy a workspace archive without creating a Git commit. The archive excludes local environment files, evidence, dependencies and build output. Heroku installs dependencies and rebuilds the app before the release phase. See [Build and release using the API](https://devcenter.heroku.com/articles/build-and-release-using-the-api).
+
+For a later release from an explicitly approved commit, deploy and inspect the app:
 
 ```sh
 git push origin main

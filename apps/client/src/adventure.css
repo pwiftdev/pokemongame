@@ -1,0 +1,157 @@
+.adventure-hint {
+  color: var(--wop-text-2);
+  font: 500 13px/1.5 var(--wop-font-ui);
+  margin: 10px 14px 12px;
+}
+.quest-tracker .tracker-action {
+  margin: 0 14px 12px;
+  font-size: 13px;
+  padding: 8px 10px;
+  min-height: 34px;
+}
+.training-goals {
+  border-left: 3px solid var(--wop-yellow);
+  padding: 8px 12px;
+  margin: 10px 0;
+  background: var(--wop-deep);
+}
+.training-goals p {
+  font-size: 13px;
+  color: var(--wop-text-2);
+  margin: 3px 0;
+}
+.regional-studies,
+.performance-panel {
+  margin-top: 20px;
+  border: 2px solid var(--wop-line);
+  padding: 14px;
+  background: var(--wop-deep);
+}
+.regional-studies > summary,
+.performance-panel > summary {
+  cursor: pointer;
+  color: var(--wop-yellow);
+  font-weight: 700;
+}
+.regional-studies > p,
+.performance-panel p {
+  margin-top: 12px;
+  font-size: 14px;
+}
+.presence {
+  border: var(--wop-border);
+  color: var(--wop-text);
+  font: 600 15px var(--wop-font-ui);
+  cursor: pointer;
+}
+.expedition-invite {
+  margin-bottom: 20px;
+}
+.expedition-invite p {
+  margin: 10px 0;
+}
+.expedition-invite > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.explorer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  margin: 8px 0;
+  border: 2px solid var(--wop-line);
+  background: var(--wop-panel);
+}
+.explorer-row strong {
+  font: 700 24px var(--wop-font-display);
+}
+.explorer-row small {
+  display: block;
+  color: var(--wop-text-2);
+}
+.explorer-row progress {
+  display: block;
+  width: 130px;
+  height: 8px;
+  accent-color: var(--wop-green);
+}
+.explorer-row span {
+  font-size: 12px;
+}
+.map-explorer {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  background: var(--wop-cyan);
+  border: 2px solid var(--wop-ink);
+  z-index: 5;
+}
+.field-study-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.field-study-summary p {
+  padding: 8px 12px;
+  border: 2px solid var(--wop-line);
+  color: var(--wop-cyan);
+  font-size: 13px;
+}
+.combat-status.incoming-attack {
+  border-color: var(--wop-red-l);
+  color: var(--wop-yellow-l);
+  background: var(--wop-ink);
+}
+.pet-bar-label .text-button {
+  color: var(--wop-cyan);
+  font: 600 12px var(--wop-font-ui);
+  padding: 0 4px;
+  min-height: 24px;
+}
+#invite-fallback {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+@media (max-width: 1000px), (max-height: 740px) {
+  .adventure-hint {
+    font-size: 11px;
+    margin: 6px 10px;
+    line-height: 1.4;
+  }
+  .quest-tracker .tracker-action {
+    margin: 0 10px 8px;
+    font-size: 11px;
+    min-height: 28px;
+    padding: 4px 8px;
+  }
+}
+@media (max-width: 800px) {
+  .adventure-hint {
+    display: none;
+  }
+  .explorer-row {
+    align-items: flex-start;
+    padding: 12px;
+  }
+  .explorer-row progress {
+    width: 90px;
+  }
+  .explorer-row strong {
+    font-size: 21px;
+  }
+}
+@container game-hud (max-height: 800px) {
+  .adventure-hint {
+    display: none;
+  }
+}
+@container game-hud (max-height: 620px) {
+  .quest-tracker .tracker-action {
+    display: none;
+  }
+}

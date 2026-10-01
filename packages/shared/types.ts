@@ -1,6 +1,8 @@
+import type { Appearance } from "./appearance";
 import type { HeroCast, AttackShape, DashState } from "./combat";
 import type { ClassId } from "./classes";
 import type { AuraView, Outcome } from "./combat-rules";
+import type { Stats } from "./pokemon";
 export type Element = "leaf" | "flame" | "tide" | "stone" | "spark" | "spirit";
 export type Biome =
   | "town"
@@ -22,8 +24,13 @@ export interface Creature {
   evolved: boolean;
   trait: string;
   moves: string[];
+  nature?: string;
+  ivs?: Stats;
+  shiny?: boolean;
+  dataVersion?: number;
 }
 export interface Profile {
+  appearance?: Appearance;
   classId?: ClassId;
   heroHp?: number;
   waystones?: string[];
@@ -39,8 +46,12 @@ export interface Profile {
   discoveries: string[];
   wins: number;
   losses: number;
+  pokedex?: { seen: string[]; caught: string[]; rewards: number[] };
 }
 export interface PlayerView {
+  practice?: import("./training").PracticeView;
+  appearance?: Appearance;
+  companionName?: string;
   cast?: HeroCast;
   level?: number;
   resource?: number;
@@ -56,6 +67,17 @@ export interface PlayerView {
   classId?: ClassId;
   petTarget?: string;
   petMode?: "assist" | "passive";
+  pet?: {
+    x: number;
+    z: number;
+    yaw: number;
+    moving: boolean;
+    hp: number;
+    maxHp: number;
+    cooldowns: Record<string, number>;
+    cast?: HeroCast;
+    shiny?: boolean;
+  };
   id: string;
   nickname: string;
   x: number;
@@ -76,6 +98,8 @@ export interface PlayerView {
   burnUntil?: number;
 }
 export interface WildView {
+  shiny?: boolean;
+  activity?: import("./pokemon-habitats").PokemonActivity;
   id: string;
   species: string;
   x: number;
@@ -96,6 +120,7 @@ export interface WildView {
   evading?: boolean;
 }
 export interface DuelView {
+  arena?: boolean;
   id: string;
   a: string;
   b: string;
@@ -104,6 +129,7 @@ export interface DuelView {
   expires: number;
 }
 export interface WorldSnapshot {
+  conditions?: ReturnType<typeof import("./pokemon-habitats").worldConditions>;
   time: number;
   players: PlayerView[];
   wilds: WildView[];
@@ -112,6 +138,15 @@ export interface WorldSnapshot {
   roomId: string;
 }
 export interface GameEvent {
+  capture?: {
+    success: boolean;
+    shakes: number;
+    duration: number;
+    species: string;
+    shiny: boolean;
+    creatureId?: string;
+  };
+  evolution?: { from: string; to: string };
   x?: number;
   z?: number;
   actor?: "hero" | "companion";

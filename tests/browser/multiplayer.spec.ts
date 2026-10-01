@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import { begin, metrics, walk } from "./helpers";
-test("two real browser contexts share a world and complete a companion duel", async ({
+test("two real browser contexts share a world and complete a normalized trainer duel", async ({
   browser,
 }) => {
   test.setTimeout(180000);
@@ -62,7 +62,14 @@ test("two real browser contexts share a world and complete a companion duel", as
     await expect(b.locator("#duel-banner")).toContainText(
       "Arena duel in progress",
     );
+    const duelBounds = await a.locator("#duel-banner").boundingBox();
+    const targetBounds = await a.locator("#target-card").boundingBox();
+    expect(duelBounds!.y).toBeGreaterThan(
+      targetBounds!.y + targetBounds!.height,
+    );
     console.log("Browser duel started");
+    for (const page of [a, b])
+      await expect(page.locator("[data-slot].locked")).toHaveCount(0);
     await a.screenshot({ path: "evidence/duel.png" });
     for (let i = 0; i < 30; i++) {
       if (!(await a.locator("#duel-banner").isVisible())) break;

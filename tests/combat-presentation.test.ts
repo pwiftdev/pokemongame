@@ -64,7 +64,7 @@ describe("combat readability and command eligibility", () => {
         100,
         false,
       ),
-    ).toBe("Challenge this trainer at the arena");
+    ).toBe("Challenge this trainer to a duel");
   });
   it("supports defensive actions without a target and avoids wasting a full-health heal", () => {
     const guard = Object.values(ABILITIES).find((a) => a.effect === "guard")!;

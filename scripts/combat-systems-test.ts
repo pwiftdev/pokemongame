@@ -421,8 +421,16 @@ try {
         12000,
         `${id} to attack the Mage`,
       );
+      let sawEvade = false;
+      const remove = mage.room.onMessage(
+        "world",
+        (snapshot: { wilds: { id: string; evading?: boolean }[] }) => {
+          sawEvade ||= !!snapshot.wilds.find((w) => w.id === id)?.evading;
+        },
+      );
       await travel(mage, -8, -2);
-      await until(() => !!wild(mage, id).evading, 10000, `${id} to evade`);
+      await until(() => sawEvade, 10000, `${id} to evade while retreating`);
+      remove();
       await until(
         () => {
           const w = wild(mage, id);

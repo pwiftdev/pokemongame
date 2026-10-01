@@ -1,3 +1,4 @@
+import type { GameAudio } from "../../apps/client/src/audio";
 import type { ClassId } from "../../packages/shared/classes";
 import { expect, type Page } from "@playwright/test";
 export async function begin(
@@ -111,4 +112,12 @@ export async function enterMeleeRange(page: Page) {
     await page.keyboard.up("w");
     await page.keyboard.up("a");
   }
+}
+
+export async function audioMetrics(page: Page) {
+  return page.evaluate(
+    () =>
+      (window as unknown as { __audioMetrics: GameAudio["metrics"] })
+        .__audioMetrics,
+  );
 }

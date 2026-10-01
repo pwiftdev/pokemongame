@@ -19,10 +19,10 @@ import {
   xpForLevel,
 } from "../packages/shared/rules";
 describe("authored game content", () => {
-  it("provides valid moves for twelve enemy species and three Pokémon companions, with reachable authored spawns", () => {
-    expect(Object.keys(SPECIES)).toHaveLength(15);
+  it("provides valid moves for twelve enemies and a large Pokémon roster, with reachable authored spawns", () => {
+    expect(Object.keys(SPECIES).length).toBeGreaterThanOrEqual(52);
     for (const s of Object.values(SPECIES)) {
-      expect(s.moves).toHaveLength(4);
+      expect(s.moves).toHaveLength(s.id === "training-dummy" ? 0 : 4);
       for (const m of s.moves) expect(ABILITIES[m]).toBeDefined();
     }
     for (const s of SPAWNS) expect(walkable(s.x, s.z), s.id).toBe(true);
@@ -34,7 +34,7 @@ describe("authored game content", () => {
     expect(QUESTS.filter((q) => !q.repeatable).length).toBeGreaterThanOrEqual(
       10,
     );
-    expect(QUESTS.filter((q) => q.side)).toHaveLength(4);
+    expect(QUESTS.filter((q) => q.side && !q.repeatable)).toHaveLength(12);
     expect(SPAWNS.filter((s) => s.elite)).toHaveLength(5);
     expect(SPAWNS.filter((s) => s.boss)).toHaveLength(1);
     for (const id of STARTERS)

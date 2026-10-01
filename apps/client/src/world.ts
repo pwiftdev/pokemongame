@@ -1,3 +1,23 @@
+import { createTrainingDummy } from "./render/training-dummy";
+import {
+  isTraining,
+  TRAINING_TARGETS,
+} from "../../../packages/shared/training";
+import { cacheEnabledMeshCandidates } from "./render/mesh-candidates";
+import {
+  companionMood,
+  personalityPhase,
+} from "../../../packages/shared/companion-personality";
+import { startup } from "./loading/progress";
+import {
+  appearanceKey,
+  normalizeAppearance,
+  RACES,
+} from "../../../packages/shared/appearance";
+import { heroCanWalk } from "../../../packages/shared/hero";
+import { alignPokemon } from "./render/pokemon-pose";
+import { POKEMON_MOVES } from "../../../packages/shared/pokemon-moves";
+import { POKEMON } from "../../../packages/shared/pokemon";
 import { ABILITIES } from "../../../packages/shared/data";
 import {
   DASH,
@@ -66,6 +86,10 @@ export interface WorldSettings {
   keybinds?: Record<string, string>;
 }
 export interface GameWorld {
+  setOverview: (
+    center: { x: number; z: number; alpha?: number; beta?: number },
+    radius: number,
+  ) => void;
   dash: () => void;
   setSnapshot: (snapshot: WorldSnapshot, selfId: string) => void;
   setProfile: (profile: Profile) => void;
@@ -92,7 +116,13 @@ interface Callbacks {
   onAbility: (slot: number, quiet?: boolean) => void;
   onTame: () => void;
   onImpact?: (event: GameEvent) => void;
-  onStep?: () => void;
+  onStep?: (
+    point: { x: number; z: number },
+    landing: boolean,
+    sprint: boolean,
+  ) => void;
+  onJump?: () => void;
+  onListener?: (point: { x: number; z: number }, alpha: number) => void;
 }
 interface Actor {
   visual: CreatureActor;
@@ -105,11 +135,18 @@ interface Actor {
   attackTarget?: string;
 }
 interface PlayerActor {
+  restSince: number;
+  greetingUntil: number;
+  personalityPhase: number;
+  mood?: string;
+  nameHeight: number;
   heroAimUntil?: number;
   trainer: TrainerActor;
   nameplate: ReturnType<typeof createWorldLabel>;
   companion?: CreatureActor;
+  companionLabel?: ReturnType<typeof createWorldLabel>;
   companionKey?: string;
+  cinematicUntil?: number;
   view: PlayerView;
   holdUntil: number;
   hitUntil: number;
@@ -127,6 +164,10 @@ export async function createWorld(
   });
   engine.setHardwareScalingLevel(Math.max(1, window.devicePixelRatio / 1.5));
   const scene = new Scene(engine);
+  cacheEnabledMeshCandidates(scene);
+  let overview:
+    | { x: number; z: number; radius: number; alpha?: number; beta?: number }
+    | undefined;
   const instrumentation = new SceneInstrumentation(scene);
   instrumentation.captureFrameTime = true;
   const frameMs: number[] = [];
@@ -189,9 +230,19 @@ export async function createWorld(
   pipeline.imageProcessing.toneMappingEnabled = true;
   pipeline.imageProcessing.toneMappingType =
     ImageProcessingConfiguration.TONEMAPPING_ACES;
+  let cameraCollision: ReturnType<typeof createCameraCollision> | undefined;
   const loaded = await Promise.allSettled([
-    buildEnvironment(scene),
-    loadCreatures(scene),
+    buildEnvironment(scene, (meshes) => {
+      for (const mesh of meshes) shadows.addShadowCaster(mesh);
+      cameraCollision?.include(meshes);
+    }),
+    loadCreatures(
+      scene,
+      (meshes) => {
+        for (const mesh of meshes) shadows.addShadowCaster(mesh);
+      },
+      startup.active,
+    ),
     loadTrainers(scene),
   ] as const);
   if (
@@ -210,7 +261,7 @@ export async function createWorld(
   const creatures = loaded[1].value;
   const trainers = loaded[2].value;
   const storyWorld = createStoryWorld(scene, trainers);
-  const cameraCollision = createCameraCollision(scene, camera);
+  cameraCollision = createCameraCollision(scene, camera);
   for (const mesh of scene.meshes)
     if (mesh.metadata?.castShadow) shadows.addShadowCaster(mesh);
   const threats = new Map<string, ReturnType<typeof createThreatMarker>>();
@@ -257,6 +308,19 @@ export async function createWorld(
       vertices: scene.getTotalVertices(),
       drawCalls: instrumentation.drawCallsCounter.current,
       creatures: targets.size,
+      loadedPokemon: [...targets.values()].filter(
+        (actor) => POKEMON[actor.view.species] && actor.visual.modelReady,
+      ).length,
+      visiblePokemon: [...targets.values()].filter(
+        (actor) =>
+          POKEMON[actor.view.species] &&
+          actor.view.hp > 0 &&
+          actor.visual.root.isEnabled() &&
+          !!scene.frustumPlanes &&
+          actor.visual.meshes.some(
+            (mesh) => mesh.isEnabled() && mesh.isInFrustum(scene.frustumPlanes),
+          ),
+      ).length,
       players: players.size,
       selfPosition: { ...position },
       cameraAlpha: camera.alpha,
@@ -265,11 +329,23 @@ export async function createWorld(
       floatingText: overlay.floatCount,
       effectNames: combatEffects.activeNames,
       heroMotion: players.get(selfId)?.trainer.motion,
+      characterNames: [...players.values()].map((actor) => ({
+        id: actor.view.id,
+        name: actor.view.nickname,
+        pet: actor.view.companionName,
+        appearance: actor.view.appearance,
+        mood: actor.mood,
+        nameVisible:
+          actor.nameplate.mesh.isEnabled() && actor.nameplate.mesh.isVisible,
+        petVisible:
+          !!actor.companionLabel?.mesh.isEnabled() &&
+          !!actor.companionLabel?.mesh.isVisible,
+      })),
       heroLegMotion: players.get(selfId)?.trainer.legMotion,
       movementSpeed: Math.hypot(velocity.x, velocity.z),
       jumpHeight: jump,
       targetId,
-      cameraCollision: cameraCollision.metrics(),
+      cameraCollision: cameraCollision!.metrics(),
     }),
   });
   const presentationObserver = scene.onBeforeCameraRenderObservable.add(
@@ -332,8 +408,8 @@ export async function createWorld(
       if (hit) shake = Math.max(shake, crit ? 1 : event.auto ? 0.25 : 0.45);
       if (crit && event.source === selfId && !settings.reducedMotion)
         hitstopUntil = time + 0.07;
-      callbacks.onImpact?.(event);
     }
+    callbacks.onImpact?.(event);
   });
   const AVOIDED: Partial<Record<Outcome, string>> = {
     miss: "Miss",
@@ -413,11 +489,17 @@ export async function createWorld(
   function setWild(view: WildView) {
     let actor = targets.get(view.id);
     if (!actor) {
-      const visual = creatures.create(
-        view.boss ? "Yeti" : SPECIES_MODELS[view.species],
-        view.id,
-        view.boss ? 5.2 : view.elite ? 2.2 : 1.45,
-      );
+      const visual = isTraining(view)
+        ? createTrainingDummy(scene, view.id)
+        : creatures.create(
+            view.boss ? "Yeti" : SPECIES_MODELS[view.species],
+            view.id,
+            view.boss
+              ? 5.2
+              : view.elite
+                ? 2.2
+                : (POKEMON[view.species]?.modelScale ?? 1.45),
+          );
       visual.root.position.set(view.x, terrainHeight(view.x, view.z), view.z);
       addShadow(visual.meshes);
       actor = {
@@ -458,8 +540,20 @@ export async function createWorld(
     let actor = players.get(view.id);
     if (!actor) {
       actor = {
-        trainer: trainers.create(view.id, view.id === selfId, view.classId),
-        nameplate: createWorldLabel(scene, view.nickname, 3.3),
+        restSince: time,
+        greetingUntil: 0,
+        personalityPhase: personalityPhase(view.id),
+        nameHeight: 2.28,
+        trainer: trainers.create(
+          view.id,
+          view.id === selfId,
+          view.classId,
+          normalizeAppearance(view.appearance),
+        ),
+        nameplate: createWorldLabel(scene, view.nickname, 3.3, {
+          distance: 60,
+          color: "#ffffff",
+        }),
         view,
         holdUntil: 0,
         hitUntil: 0,
@@ -472,12 +566,16 @@ export async function createWorld(
       addShadow(actor.trainer.meshes);
       players.set(view.id, actor);
     }
-    if (actor.view.classId !== view.classId) {
+    if (
+      actor.view.classId !== view.classId ||
+      appearanceKey(actor.view.appearance) !== appearanceKey(view.appearance)
+    ) {
       disposeVisual(actor.trainer);
       actor.trainer = trainers.create(
         view.id,
         view.id === selfId,
         view.classId,
+        normalizeAppearance(view.appearance),
       );
       actor.trainer.root.position.set(
         view.x,
@@ -486,7 +584,15 @@ export async function createWorld(
       );
       addShadow(actor.trainer.meshes);
     }
+    if (
+      view.emote &&
+      view.emote !== actor.view.emote &&
+      ["hello", "cheer"].includes(view.emote)
+    )
+      actor.greetingUntil = time + 3.5;
     actor.view = view;
+    const appearance = normalizeAppearance(view.appearance);
+    actor.nameHeight = RACES[appearance.race].height * appearance.height + 0.38;
     const phrases: Record<string, string> = {
       hello: "Hello!",
       cheer: "You can do it!",
@@ -498,10 +604,12 @@ export async function createWorld(
         ? `${view.nickname}: ${phrases[view.emote] || view.emote}`
         : view.nickname,
     );
-    actor.nameplate.mesh.setEnabled(view.id !== selfId || !!view.emote);
+    actor.nameplate.mesh.setEnabled(true);
     const key = `${view.companion}:${view.companionEvolved}`;
     if (actor.companionKey !== key) {
       disposeVisual(actor.companion);
+      actor.companionLabel?.dispose();
+      actor.companionLabel = undefined;
       actor.companion = undefined;
       actor.companionKey = key;
       if (view.companion) {
@@ -510,14 +618,23 @@ export async function createWorld(
             ? EVOLVED_MODELS[view.companion] || SPECIES_MODELS[view.companion]
             : SPECIES_MODELS[view.companion],
           `companion:${view.id}`,
-          view.companionEvolved ? 1.6 : 1.1,
+          POKEMON[view.companion]?.modelScale ??
+            (view.companionEvolved ? 1.6 : 1.1),
         );
         actor.companion.root.position
           .copyFrom(actor.trainer.root.position)
           .addInPlace(new Vector3(1.8, 0, -1));
         addShadow(actor.companion.meshes);
+        actor.companionLabel = createWorldLabel(scene, "", 3.4, {
+          distance: 45,
+          color: "#5ce1ff",
+        });
       }
     }
+    actor.companionLabel?.update(
+      `${view.companionName || SPECIES[view.companion ?? ""]?.name || "Companion"} · Lv ${view.companionLevel}`,
+      `${view.nickname}’s companion`,
+    );
     return actor;
   }
   /** Tab targeting: enemies in front of the camera first, then by distance, cycling through recent picks. */
@@ -608,6 +725,7 @@ export async function createWorld(
     else if (key === "alt" && jump === 0) {
       event.preventDefault();
       jumpVelocity = 5;
+      callbacks.onJump?.();
     } else if (/^[1-6]$/.test(key)) ability(Number(key) - 1);
   }
   function keyup(event: KeyboardEvent) {
@@ -675,7 +793,7 @@ export async function createWorld(
       let dx = 0,
         dz = 0;
       const self = players.get(selfId);
-      const active = !blocked() && (self?.view.hp ?? 1) > 0;
+      const active = !blocked() && (!self || heroCanWalk(self.view));
       if (!active) keys.clear();
       const held = (action: string, key: string, arrow: string) =>
         keys.has(bind(action, key)) || keys.has(arrow);
@@ -725,7 +843,12 @@ export async function createWorld(
             );
       velocity.x = (position.x - previous.x) / Math.max(0.001, dt);
       velocity.z = (position.z - previous.z) / Math.max(0.001, dt);
-      if (active && keys.has("1") && time >= nextHeldAttack) {
+      if (
+        active &&
+        (self?.view.hp ?? 0) > 0 &&
+        keys.has("1") &&
+        time >= nextHeldAttack
+      ) {
         callbacks.onAbility(0, true);
         nextHeldAttack = time + 0.12;
       }
@@ -733,10 +856,11 @@ export async function createWorld(
         stepDistance += distance(position, previous);
         if (stepDistance > (sprint ? 1.9 : 1.6)) {
           stepDistance = 0;
-          callbacks.onStep?.();
+          callbacks.onStep?.(position, false, sprint);
         }
       }
       if (time - lastSend > 0.05) {
+        callbacks.onListener?.(position, camera.alpha);
         callbacks.onMove(dx, dz, sprint, yaw);
         lastSend = time;
       }
@@ -745,7 +869,7 @@ export async function createWorld(
         jump = Math.max(0, jump + jumpVelocity * dt);
         if (jump === 0) {
           jumpVelocity = 0;
-          callbacks.onStep?.();
+          callbacks.onStep?.(position, true, sprint);
         }
       }
       if (self) {
@@ -770,7 +894,7 @@ export async function createWorld(
           Math.hypot(velocity.x, velocity.z),
           jump,
           jumpVelocity,
-          self.view.hp > 0,
+          heroCanWalk(self.view),
         );
       }
       const focal = new Vector3(
@@ -785,7 +909,7 @@ export async function createWorld(
           : 0.8) -
           camera.fov) *
         (1 - Math.exp(-dt * 5));
-      cameraCollision.update(time, dt);
+      cameraCollision!.update(time, dt);
       shake = Math.max(0, shake - dt * 4.5);
       if (settings.cameraShake && !reduced && shake > 0) {
         camera.target.x += Math.sin(time * 91) * 0.09 * shake * shake;
@@ -796,6 +920,16 @@ export async function createWorld(
       camera.beta = 1.24;
       camera.radius = 42;
       camera.target.set(-6, 1.8, -10);
+    }
+    if (overview) {
+      camera.target.set(
+        overview.x,
+        terrainHeight(overview.x, overview.z) + 0.6,
+        overview.z,
+      );
+      camera.radius = overview.radius;
+      camera.alpha = overview.alpha ?? -Math.PI / 2;
+      camera.beta = overview.beta ?? 0.82;
     }
     for (const actor of targets.values()) {
       const { view, visual } = actor;
@@ -821,12 +955,20 @@ export async function createWorld(
         ),
         shown
           ? {
-              name: view.boss ? "Stormheart" : SPECIES[view.species].name,
+              name: isTraining(view)
+                ? (TRAINING_TARGETS.find((t) => t.id === view.id)?.name ??
+                  "Training dummy")
+                : view.boss
+                  ? "Stormheart"
+                  : SPECIES[view.species].name,
               level: view.level,
               difficulty: difficulty(view.level, self?.level ?? 1),
               hp: view.hp,
               maxHp: view.maxHp,
-              reaction: SPECIES[view.species].companion ? "neutral" : "hostile",
+              reaction:
+                isTraining(view) || SPECIES[view.species].companion
+                  ? "neutral"
+                  : "hostile",
               rank: view.boss ? "boss" : view.elite ? "elite" : "normal",
               targeted: view.id === targetId,
               aggro: view.target === selfId,
@@ -900,26 +1042,51 @@ export async function createWorld(
         destination,
         1 - Math.exp(-dt * 9),
       );
+      visual.setDetail(Vector3.Distance(camera.position, visual.root.position));
+      alignPokemon(visual.root, view.species, dt);
+      if (
+        view.shiny &&
+        Math.floor(time * 2) !== Math.floor((time - dt) * 2) &&
+        Vector3.DistanceSquared(camera.position, visual.root.position) < 1600
+      )
+        combatEffects.cast(
+          { type: "pet-cast", ability: "pk-thunder-shock", message: "Shiny" },
+          visual.root.position,
+          visual.root.position,
+          "spark",
+          undefined,
+          0,
+          0.6,
+        );
       visual.root.setEnabled(view.hp > 0 || time < actor.holdUntil);
       const charging =
         view.cast?.charge && sharedNow >= view.cast.resolvesAt - 250;
       if (time > actor.holdUntil && view.hp > 0)
         visual.animate(
-          charging
-            ? "move"
-            : view.state === "attack"
-              ? "attack"
-              : view.state === "chase" ||
-                  view.state === "roam" ||
-                  view.state === "retreat"
-                ? "move"
-                : "idle",
+          view.activity === "sleep"
+            ? "sleep"
+            : view.activity === "feed" || view.activity === "drink"
+              ? "idle-variant"
+              : charging
+                ? "run"
+                : view.state === "attack"
+                  ? "attack"
+                  : view.state === "chase" ||
+                      view.state === "roam" ||
+                      view.state === "retreat"
+                    ? "move"
+                    : "idle",
           charging
             ? 0.22
             : view.cast
               ? (view.cast.resolvesAt - (view.cast.startedAt ?? sharedNow)) /
                 1000
-              : undefined,
+              : delta.lengthSquared() > 0.02
+                ? Math.max(
+                    0.3,
+                    Math.min(1.5, 0.9 / Math.max(0.1, delta.length() * 9)),
+                  )
+                : undefined,
         );
     }
     for (const [id, actor] of players) {
@@ -931,7 +1098,7 @@ export async function createWorld(
       }
       actor.nameplate.mesh.position.set(
         root.position.x,
-        root.position.y + 2.6,
+        root.position.y + actor.nameHeight,
         root.position.z,
       );
       if (id !== selfId) {
@@ -953,11 +1120,22 @@ export async function createWorld(
           undefined,
           0,
           0,
-          actor.view.hp > 0,
+          heroCanWalk(actor.view),
         );
       }
       if (actor.companion) {
         const companion = actor.companion;
+        companion.root.setEnabled(time >= (actor.cinematicUntil ?? 0));
+        actor.companionLabel?.mesh.setEnabled(companion.root.isEnabled());
+        actor.companionLabel?.mesh.position
+          .copyFrom(companion.root.position)
+          .addInPlace(
+            new Vector3(
+              0,
+              (POKEMON[actor.view.companion ?? ""]?.modelScale ?? 1.3) + 0.45,
+              0,
+            ),
+          );
         const desired = root.position.add(
           new Vector3(
             -Math.cos(root.rotation.y) * 1.7,
@@ -968,14 +1146,20 @@ export async function createWorld(
         const petEnemy = actor.view.petTarget
           ? targets.get(actor.view.petTarget)
           : undefined;
-        if (petEnemy && petEnemy.view.hp > 0) {
+        if (actor.view.pet)
+          desired.set(
+            actor.view.pet.x,
+            terrainHeight(actor.view.pet.x, actor.view.pet.z),
+            actor.view.pet.z,
+          );
+        if (!actor.view.pet && petEnemy && petEnemy.view.hp > 0) {
           desired.copyFrom(petEnemy.visual.root.position);
           desired.x -= 3.5;
           desired.z -= 2;
         }
         const distance = Vector3.Distance(companion.root.position, desired);
         const diff = desired.subtract(companion.root.position);
-        if (distance > 0.6) {
+        if (distance > 0.08 && (actor.view.pet?.hp ?? 1) > 0) {
           const speed = Math.min(12, 3 + distance * 2) * dt;
           const step = diff.normalize().scale(Math.min(distance, speed));
           const next = moveWithCollision(
@@ -1011,9 +1195,43 @@ export async function createWorld(
               facing.position.z - companion.root.position.z,
             );
         }
+        alignPokemon(companion.root, actor.view.companion!, dt);
+        const moving = !!actor.view.pet?.moving || distance > 0.7;
+        if (moving || actor.view.moving || actor.view.inCombat)
+          actor.restSince = time;
+        const mood = companionMood({
+          temperament:
+            POKEMON[actor.view.companion ?? ""]?.temperament ?? "curious",
+          phase: actor.personalityPhase,
+          time,
+          restingFor: time - actor.restSince,
+          moving,
+          inCombat: !!actor.view.inCombat || !!actor.view.duelId,
+          fainted: (actor.view.pet?.hp ?? actor.view.hp) === 0,
+          greeting: time < actor.greetingUntil,
+        });
+        actor.mood = mood;
+        if (mood === "celebrate" && !moving)
+          companion.root.rotation.y = turnTowards(
+            companion.root.rotation.y,
+            Math.atan2(
+              root.position.x - companion.root.position.x,
+              root.position.z - companion.root.position.z,
+            ),
+            dt,
+          );
         if (time > actor.holdUntil)
           companion.animate(
-            actor.view.hp === 0 ? "defeat" : distance > 0.7 ? "move" : "idle",
+            mood === "defeat"
+              ? mood
+              : moving
+                ? distance > 3
+                  ? "run"
+                  : "move"
+                : mood,
+            moving
+              ? Math.max(0.28, Math.min(1.2, 0.9 / Math.max(1, distance * 4)))
+              : undefined,
           );
       }
     }
@@ -1066,6 +1284,9 @@ export async function createWorld(
     if (frameMs.length > 600) frameMs.shift();
   });
   await scene.whenReadyAsync();
+  await new Promise<void>((resolve) =>
+    scene.onAfterRenderObservable.addOnce(() => resolve()),
+  );
   return {
     dash: requestDash,
     setSnapshot(value, id) {
@@ -1100,6 +1321,7 @@ export async function createWorld(
       for (const [pid, actor] of players)
         if (!ids.has(pid)) {
           actor.nameplate.dispose();
+          actor.companionLabel?.dispose();
           disposeVisual(actor.trainer);
           disposeVisual(actor.companion);
           combatEffects.charge(pid, Vector3.Zero(), undefined, 0);
@@ -1113,6 +1335,10 @@ export async function createWorld(
       );
       if (active?.hp === 0) players.get(selfId)?.companion?.animate("defeat");
     },
+    setOverview(center, radius) {
+      overview = { ...center, radius };
+      camera.upperRadiusLimit = Math.max(60, radius);
+    },
     setPlaying(value) {
       if (value === playing) return;
       playing = value;
@@ -1122,7 +1348,7 @@ export async function createWorld(
       camera.upperRadiusLimit = value ? 24 : 60;
       if (value) {
         camera.radius = 9.5;
-        cameraCollision.reset(9.5);
+        cameraCollision!.reset(9.5);
         camera.alpha = -Math.PI / 2;
         camera.beta = 1.16;
         camera.target.set(position.x, 1.7, position.z);
@@ -1192,6 +1418,106 @@ export async function createWorld(
       const victimRoot =
         targets.get(event.target ?? "")?.visual.root ??
         players.get(event.target ?? "")?.trainer.root;
+      if (event.type === "evolution" && event.evolution && player) {
+        const position = (
+          player.companion?.root.position ?? player.trainer.root.position
+        ).clone();
+        player.cinematicUntil = time + 3.2;
+        const before = creatures.create(
+          SPECIES_MODELS[event.evolution.from],
+          "evolution-before",
+          POKEMON[event.evolution.from].modelScale,
+        );
+        const after = creatures.create(
+          SPECIES_MODELS[event.evolution.to],
+          "evolution-after",
+          POKEMON[event.evolution.to].modelScale,
+        );
+        before.root.position.copyFrom(position);
+        after.root.position.copyFrom(position);
+        after.root.setEnabled(false);
+        const baseBefore = before.root.scaling.clone(),
+          baseAfter = after.root.scaling.clone();
+        combatEffects.evolve(
+          position,
+          (t) => {
+            before.root.setEnabled(t < 0.62);
+            after.root.setEnabled(t >= 0.62);
+            const actor = t < 0.62 ? before : after,
+              scale = t < 0.62 ? baseBefore : baseAfter;
+            actor.root.scaling
+              .copyFrom(scale)
+              .scaleInPlace(
+                t < 0.62
+                  ? 1 + t * 0.5
+                  : 1 + Math.sin(((t - 0.62) / 0.38) * Math.PI) * 0.1,
+              );
+            actor.root.rotation.y = t * Math.PI * 2;
+            for (const mesh of actor.meshes) {
+              mesh.renderOverlay = t < 0.7;
+              mesh.overlayColor = Color3.FromHexString("#e8ffe4");
+              mesh.overlayAlpha = 0.85;
+            }
+            actor.animate(t > 0.7 ? "celebrate" : "idle");
+          },
+          () => {
+            before.dispose();
+            after.dispose();
+          },
+        );
+        return;
+      }
+      if (event.type === "pet-cast" && player?.companion) {
+        player.companion.animate(
+          POKEMON_MOVES[event.ability ?? ""]?.animation ?? "attack",
+        );
+        player.holdUntil = time + 0.8;
+        combatEffects.cast(
+          event,
+          player.companion.root.position.clone(),
+          victimRoot?.position.clone() ??
+            player.companion.root.position.clone(),
+          SPECIES[player.view.companion!].element,
+          undefined,
+          0,
+          POKEMON[player.view.companion!]?.modelScale ?? 1,
+        );
+        return;
+      }
+      if (["pet-hit", "pet-faint", "pet-heal"].includes(event.type)) {
+        const owner = players.get(
+          event.type === "pet-heal"
+            ? (event.source ?? "")
+            : (event.target ?? ""),
+        );
+        if (owner?.companion) {
+          owner.companion.animate(
+            event.type === "pet-faint"
+              ? "defeat"
+              : event.type === "pet-hit"
+                ? "hit"
+                : "celebrate",
+          );
+          owner.holdUntil = time + (event.type === "pet-faint" ? 4 : 0.5);
+          overlay.float(
+            owner.companion.root.position.add(new Vector3(0, 2, 0)),
+            event.type === "pet-faint"
+              ? "Fainted"
+              : event.amount
+                ? `−${event.amount}`
+                : event.message,
+            "damage",
+          );
+        }
+        return;
+      }
+      if (event.type === "pet-swap" && player) {
+        combatEffects.capture(
+          player.companion?.root.position ?? player.trainer.root.position,
+          true,
+        );
+        return;
+      }
       if (event.type === "cast" && player) {
         if (!early) player.trainer.action("attack", event.ability);
         player.attackTarget = event.target;
@@ -1343,6 +1669,7 @@ export async function createWorld(
             : () =>
                 target.root.isDisposed() ? undefined : target.root.position,
           motion?.impact ?? autoWindup,
+          POKEMON[species ?? ""]?.modelScale ?? 1,
         );
       }
       if (event.type === "reward" && event.amount) {
@@ -1356,7 +1683,16 @@ export async function createWorld(
       }
       if (event.type === "capture" || event.type === "tame") {
         const captured = targets.get(event.target ?? "");
-        if (captured)
+        if (captured && event.capture) {
+          captured.holdUntil = time + event.capture.duration / 1000;
+          captured.defeatStarted = true;
+          combatEffects.captureSequence(
+            players.get(event.source ?? "")?.trainer.root.position ??
+              captured.visual.root.position,
+            captured.visual.root,
+            event,
+          );
+        } else if (captured)
           combatEffects.capture(
             captured.visual.root.position,
             event.type === "capture",
@@ -1381,6 +1717,7 @@ export async function createWorld(
       overlay.dispose();
       for (const actor of players.values()) {
         actor.nameplate.dispose();
+        actor.companionLabel?.dispose();
         disposeVisual(actor.trainer);
         disposeVisual(actor.companion);
       }

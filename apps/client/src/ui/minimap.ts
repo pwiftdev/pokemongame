@@ -30,30 +30,23 @@ export function drawMinimap(
   ctx.beginPath();
   ctx.arc(c, c, 82, 0, Math.PI * 2);
   ctx.clip();
-  for (let x = 0; x < 180; x += 6)
-    for (let y = 0; y < 180; y += 6) {
-      const wx = self.x + (x - c) / scale,
-        wz = self.z - (y - c) / scale;
-      ctx.fillStyle =
-        Math.hypot(wx, wz) > WORLD_RADIUS
-          ? "#244856"
-          : REGIONS.find((r) => r.id === regionBiome(wx, wz))!.color;
-      ctx.fillRect(x, y, 6, 6);
-    }
-  ctx.strokeStyle = "#dfcea0";
-  ctx.lineWidth = 2;
-  for (const road of ROADS) {
-    ctx.beginPath();
-    road.forEach(([x, z], i) => {
-      const [px, py] = point(x, z);
-      if (i) ctx.lineTo(px, py);
-      else ctx.moveTo(px, py);
-    });
-    ctx.stroke();
-  }
-  for (const place of PLACES) {
-    const [x, y] = point(place.x, place.z);
-    ctx.fillStyle = "#fff0b4";
+  ctx.fillStyle = "#244856";
+  ctx.fillRect(0, 0, 180, 180);
+  ctx.drawImage(
+    terrainAtlas(),
+    WORLD_RADIUS + self.x - c / scale,
+    WORLD_RADIUS - self.z - c / scale,
+    180 / scale,
+    180 / scale,
+    0,
+    0,
+    180,
+    180,
+  );
+  for (const player of snapshot.players) {
+    if (player.id === selfId) continue;
+    const [x, y] = point(player.x, player.z);
+    ctx.fillStyle = player.hp <= 0 ? "#f2352b" : "#5ce1ff";
     ctx.fillRect(x - 2, y - 2, 4, 4);
   }
   for (const w of snapshot.wilds) {
@@ -107,4 +100,42 @@ export function drawMinimap(
   ctx.textAlign = "center";
   ctx.fillStyle = "#f9e4b3";
   ctx.fillText("N", 90, 12);
+}
+
+let atlas: HTMLCanvasElement | undefined;
+function terrainAtlas() {
+  if (atlas) return atlas;
+  atlas = document.createElement("canvas");
+  atlas.width = atlas.height = WORLD_RADIUS * 2;
+  const ctx = atlas.getContext("2d")!;
+  const colors = new Map(REGIONS.map((region) => [region.id, region.color]));
+  for (let x = 0; x < atlas.width; x += 4)
+    for (let y = 0; y < atlas.height; y += 4) {
+      const wx = x - WORLD_RADIUS,
+        wz = WORLD_RADIUS - y;
+      ctx.fillStyle =
+        Math.hypot(wx, wz) > WORLD_RADIUS
+          ? "#244856"
+          : colors.get(regionBiome(wx, wz))!;
+      ctx.fillRect(x, y, 4, 4);
+    }
+  ctx.strokeStyle = "#dfcea0";
+  ctx.lineWidth = 1.6;
+  for (const road of ROADS) {
+    ctx.beginPath();
+    road.forEach(([x, z], i) => {
+      if (i) ctx.lineTo(WORLD_RADIUS + x, WORLD_RADIUS - z);
+      else ctx.moveTo(WORLD_RADIUS + x, WORLD_RADIUS - z);
+    });
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#fff0b4";
+  for (const place of PLACES)
+    ctx.fillRect(
+      WORLD_RADIUS + place.x - 1.6,
+      WORLD_RADIUS - place.z - 1.6,
+      3.2,
+      3.2,
+    );
+  return atlas;
 }

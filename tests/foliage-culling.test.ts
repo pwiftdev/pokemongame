@@ -47,11 +47,13 @@ describe("foliage visibility", () => {
 
   it("restores the correct density when quality changes and disposes its meshes", () => {
     const { mesh, culling } = setup();
-    culling.update({ x: 70, z: 5 }, false);
+    culling.update({ x: 45, z: 5 }, false);
     const count = mesh.thinInstanceCount;
-    culling.update({ x: 70, z: 5 }, true);
-    expect(mesh.isEnabled()).toBe(false);
-    culling.update({ x: 70, z: 5 }, false);
+    culling.update({ x: 45, z: 5 }, true);
+    expect(mesh.isEnabled()).toBe(true);
+    expect(mesh.thinInstanceCount).toBeGreaterThan(0);
+    expect(mesh.thinInstanceCount).toBeLessThan(count / 4);
+    culling.update({ x: 45, z: 5 }, false);
     expect(mesh.thinInstanceCount).toBe(count);
     expect(mesh.isEnabled()).toBe(true);
     culling.dispose();

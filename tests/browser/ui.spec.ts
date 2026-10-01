@@ -50,7 +50,7 @@ test("guest onboarding, every field menu, settings, and durable resume", async (
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   await expect(page.locator("#start")).toBeEnabled({ timeout: 60_000 });
-  await expect(page.locator("h1")).toContainText("A little wild.");
+  await expect(page.locator("#title-screen h1")).toContainText("POKÉMON");
   await page.getByRole("button", { name: "Field notes & credits" }).click();
   await expect(page.locator(".panel-credits")).toContainText(
     "Ultimate Monsters",
@@ -81,16 +81,18 @@ test("guest onboarding, every field menu, settings, and durable resume", async (
     "Taming capsule",
   );
   await page.getByRole("button", { name: "Visit shop" }).click();
-  await expect(page.locator(".panel-shop .item-card")).toHaveCount(9);
+  await expect(page.locator(".panel-shop .item-card")).toHaveCount(12);
   await expect(page.locator(".panel-shop")).toContainText("Mira");
   await page.keyboard.press("Escape");
 
   await page.keyboard.press("j");
-  await expect(page.locator(".quest-row")).toHaveCount(14);
-  await page.locator('[data-action="claim:first-friend"]').click();
+  await expect(page.locator(".quest-row")).toHaveCount(22);
+  await page
+    .locator('.panel-quests [data-action="claim:first-friend"]')
+    .click();
   await expect(page.locator("#balance")).toHaveText("220");
   await expect(
-    page.locator('[data-action="claim:first-friend"]'),
+    page.locator('.panel-quests [data-action="claim:first-friend"]'),
   ).toBeDisabled();
   await page.keyboard.press("Escape");
   await page.locator(".balance-pill").click();
@@ -137,7 +139,7 @@ test("guest onboarding, every field menu, settings, and durable resume", async (
   expect(errors).toEqual([]);
 });
 
-test("desktop layout keeps title controls reachable and explains small screens", async ({
+test("title controls stay reachable on desktop and small screens", async ({
   page,
 }) => {
   await page.goto("/");
@@ -155,8 +157,6 @@ test("desktop layout keeps title controls reachable and explains small screens",
     await expect(page.locator(".small-screen")).toBeHidden();
   }
   await page.setViewportSize({ width: 600, height: 800 });
-  await expect(page.locator(".small-screen")).toBeVisible();
-  await expect(page.locator(".small-screen")).toContainText(
-    "keyboard and mouse",
-  );
+  await expect(page.locator(".small-screen")).toBeHidden();
+  await expect(page.locator("#start")).toBeVisible();
 });

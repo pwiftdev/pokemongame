@@ -1,4 +1,41 @@
 import {
+  TRAINING_SPAWNS,
+  trainingHealth,
+  hitTrainingTarget,
+  tickTrainingTarget,
+  resetPractice,
+} from "./training.js";
+import {
+  isTraining,
+  type PracticeView,
+} from "../../../packages/shared/training.js";
+import { normalizeAppearance } from "../../../packages/shared/appearance.js";
+import { HttpError } from "./errors.js";
+import { createCompanionCombat } from "./companion-combat.js";
+import {
+  DEX_REWARDS,
+  recordPokemon,
+  capturePresentation,
+} from "../../../packages/shared/pokedex.js";
+import {
+  pokemonAvailable,
+  worldConditions,
+} from "../../../packages/shared/pokemon-habitats.js";
+import { tickPokemonAmbient, type AmbientPokemon } from "./pokemon-wildlife.js";
+import { deployCompanion, type CompanionState } from "./companion.js";
+import { POKEMON } from "../../../packages/shared/pokemon.js";
+import { POKEMON_MOVES } from "../../../packages/shared/pokemon-moves.js";
+import {
+  LEGACY_TYPES,
+  typeMultiplier,
+} from "../../../packages/shared/pokemon-types.js";
+import {
+  availableMoves,
+  pokemonDamage,
+  pokemonStats,
+  weakenedPokemon,
+} from "../../../packages/shared/pokemon-rules.js";
+import {
   DASH,
   dashStep,
   castTiming,
@@ -20,7 +57,13 @@ import {
   canRespawn,
 } from "../../../packages/shared/encounters.js";
 import { WAYSTONES, isSafeArea } from "../../../packages/shared/regions.js";
-import { heroHp, heroLevel, heroMaxHp } from "../../../packages/shared/hero.js";
+import {
+  heroHp,
+  heroLevel,
+  heroMaxHp,
+  heroCombatLevel,
+  DUEL_LEVEL,
+} from "../../../packages/shared/hero.js";
 import {
   COMBO_MAX,
   GCD_MS,
@@ -74,7 +117,12 @@ import {
 import { DuelSystem } from "./duels.js";
 import { safeSend } from "./messaging.js";
 import { allowedOrigin } from "./config.js";
-import { Room, type Client, type AuthContext } from "@colyseus/core";
+import {
+  Room,
+  ServerError,
+  type Client,
+  type AuthContext,
+} from "@colyseus/core";
 import {
   ABILITIES,
   BRAND,
@@ -108,6 +156,7 @@ import { captureOwner, authenticate, getProfile, mutate } from "./db.js";
 import { commandSchema, RateLimit, type ValidCommand } from "./commands.js";
 import {
   abilityFor,
+  evolvePokemon,
   activeCreature,
   claimQuest,
   acceptQuest,
@@ -123,11 +172,14 @@ import {
 } from "./gameplay.js";
 
 export interface Player {
+  practice?: PracticeView;
   cast?: HeroCast;
   dash?: DashState;
   petMode?: "assist" | "passive";
   petTarget?: string;
-  petNextAttack?: number;
+  pet?: CompanionState;
+  petCooldowns?: Map<string, Record<string, number>>;
+  petSwapUntil?: number;
   client: Client;
   profile: Profile;
   x: number;
@@ -163,7 +215,7 @@ export interface Player {
   hpSavedAt: number;
   regenAt: number;
 }
-interface Wild extends Omit<WildView, "auras" | "threat" | "evading"> {
+export interface Wild extends Omit<WildView, "auras" | "threat" | "evading"> {
   habitat: string;
   cast?: BossCast;
   castCount: number;
@@ -190,6 +242,10 @@ interface Wild extends Omit<WildView, "auras" | "threat" | "evading"> {
   /** Leashed and running home: immune until it arrives. */
   resetting: boolean;
   retreatSince: number;
+  ambientAt?: number;
+  warnedAt?: number;
+  destination?: AmbientPokemon["destination"];
+  ambientSpeed?: number;
 }
 /** How long combat lingers after the last hostile action. */
 const COMBAT_MS = 6000;
@@ -199,10 +255,6 @@ export interface Duel extends DuelView {
   reason?: string;
 }
 const sessions = new Map<string, { room: IslandRoom; sessionId: string }>();
-/** A wild Pokémon worn down enough to befriend; automatic attacks hold back. */
-function weakenedPokemon(w: { species: string; hp: number; maxHp: number }) {
-  return !!SPECIES[w.species].companion && w.hp < w.maxHp * 0.3;
-}
 function threatShares(table: Map<string, number>) {
   const top = Math.max(1, ...table.values());
   return Object.fromEntries(
@@ -216,6 +268,13 @@ export class IslandRoom extends Room {
   maxClients = WORLD.maxPlayers;
   private players = new Map<string, Player>();
   private wilds = new Map<string, Wild>();
+  private companionCombat = createCompanionCombat({
+    wilds: this.wilds,
+    event: (event) => this.event(event),
+    attack: (p, target, slot, request) =>
+      this.attack(p, target, slot, request, true),
+    impact: (p, target, move) => this.impactAttack(p, target, move, true),
+  });
   private duelSystem = new DuelSystem(
     this.players,
     (event, p) => this.event(event, p),
@@ -241,10 +300,12 @@ export class IslandRoom extends Room {
   private tickTotal = 0;
   private tickMax = 0;
   private tickSamples: number[] = [];
+  private queueWaitSamples: number[] = [];
   static rooms = new Set<IslandRoom>();
   static metrics() {
     return [...IslandRoom.rooms].map((room) => {
       const samples = [...room.tickSamples].sort((a, b) => a - b);
+      const waits = [...room.queueWaitSamples].sort((a, b) => a - b);
       return {
         roomId: room.roomId,
         players: room.players.size,
@@ -252,18 +313,30 @@ export class IslandRoom extends Room {
         meanTickMs: room.tickTotal / Math.max(1, room.ticks),
         p95TickMs: samples[Math.floor(samples.length * 0.95)] ?? 0,
         maxTickMs: room.tickMax,
+        p95QueueWaitMs: waits[Math.floor(waits.length * 0.95)] ?? 0,
       };
     });
   }
   onCreate() {
+    if (IslandRoom.rooms.size >= 8)
+      throw new ServerError(
+        503,
+        "All islands are busy. Please try again shortly.",
+      );
     IslandRoom.rooms.add(this);
-    for (const spawn of SPAWNS) {
+    for (const spawn of [...SPAWNS, ...TRAINING_SPAWNS]) {
       const hp =
         maxHp(spawn.species, spawn.level) *
         (spawn.boss ? 12 : spawn.elite ? 2.1 : 1);
       this.wilds.set(spawn.id, {
         ...spawn,
-        hp: Math.round(hp),
+        hp: isTraining(spawn)
+          ? trainingHealth(spawn.id, hp)
+          : pokemonAvailable(spawn.species, Date.now())
+            ? Math.round(hp)
+            : 0,
+        respawnAt: Date.now() + 1000,
+        shiny: !!POKEMON[spawn.species] && Math.random() < 1 / 512,
         maxHp: Math.round(hp),
         elite: !!spawn.elite,
         boss: !!spawn.boss,
@@ -334,9 +407,13 @@ export class IslandRoom extends Room {
     this.setSimulationInterval(() => {
       if (this.pendingTicks) return;
       this.pendingTicks = true;
+      const queuedAt = performance.now();
       this.serial = this.serial
         .then(async () => {
           const started = performance.now();
+          this.queueWaitSamples.push(started - queuedAt);
+          if (this.queueWaitSamples.length > 1200)
+            this.queueWaitSamples.shift();
           await this.tick();
           const elapsed = performance.now() - started;
           this.ticks++;
@@ -362,14 +439,37 @@ export class IslandRoom extends Room {
       );
     }, 60000);
   }
-  async onAuth(
-    _client: Client,
+  private static admission = new RateLimit(12, 60000);
+  private static creations = new RateLimit(3, 60000);
+  static async onAuth(
+    _token: string,
     options: { token?: unknown },
     context: AuthContext,
   ) {
     if (!allowedOrigin(context.headers.get("origin")))
-      throw new Error("Origin is not allowed.");
-    return authenticate(options?.token);
+      throw new ServerError(403, "Origin is not allowed.");
+    const profile = await authenticate(options?.token).catch((error) => {
+      if (error instanceof HttpError)
+        throw new ServerError(error.status, error.message);
+      console.error("Room authentication unavailable", error);
+      throw new ServerError(
+        503,
+        "Connection temporarily unavailable. Please try again.",
+      );
+    });
+    if (!IslandRoom.admission.allow(profile.id))
+      throw new ServerError(
+        429,
+        "Too many connection attempts. Please wait a moment.",
+      );
+    if (
+      new URL(context.req?.url ?? "http://local").pathname.startsWith(
+        "/matchmake/create/",
+      ) &&
+      !IslandRoom.creations.allow(profile.id)
+    )
+      throw new ServerError(429, "Please wait before creating another island.");
+    return profile;
   }
   async onJoin(client: Client, _options: unknown, auth: Profile) {
     const prior = sessions.get(auth.id);
@@ -394,6 +494,13 @@ export class IslandRoom extends Room {
       inputAt: 0,
       online: true,
       cooldowns: new Map(previous?.cooldowns ?? []),
+      petCooldowns: new Map(
+        [...(previous?.petCooldowns ?? [])].map(([id, cooldowns]) => [
+          id,
+          { ...cooldowns },
+        ]),
+      ),
+      petSwapUntil: previous?.petSwapUntil,
       guardUntil: 0,
       slowUntil: 0,
       stunUntil: 0,
@@ -506,19 +613,31 @@ export class IslandRoom extends Room {
     p: Player,
     request: string,
     action: Parameters<typeof mutate>[2],
+    publish = true,
   ) {
+    const healthChanged = p.hpDirty;
     const result = await mutate(p.profile.id, request, (profile, tx) => {
       this.carryHp(p, profile);
       return action(profile, tx);
     });
     if (result.applied) p.hpDirty = false;
     p.profile = result.profile;
-    if (p.online) safeSend(p.client, "profile", p.profile);
+    if (p.online && (publish || healthChanged || !result.applied))
+      safeSend(p.client, "profile", p.profile);
     return result.applied;
   }
   /** Hero health changes in memory during combat and is saved in batches. */
   private carryHp(p: Player | undefined, profile: Profile) {
-    if (p?.hpDirty) profile.heroHp = heroHp(p.profile);
+    if (!p?.hpDirty) return;
+    profile.heroHp = heroHp(p.profile);
+    if (p.profile.pokedex)
+      for (const species of p.profile.pokedex.seen)
+        recordPokemon(profile, species);
+    const byId = new Map(p.profile.creatures.map((c) => [c.id, c]));
+    for (const creature of profile.creatures) {
+      const current = byId.get(creature.id);
+      if (current) creature.hp = Math.min(creature.maxHp, current.hp);
+    }
   }
   private async saveHp(p: Player) {
     if (!p.hpDirty) return;
@@ -531,16 +650,22 @@ export class IslandRoom extends Room {
     );
     p.hpDirty = true;
   }
+  private combatLevel(p: Player) {
+    return heroCombatLevel(
+      p.profile,
+      this.duels.get(p.duelId ?? "")?.state === "active",
+    );
+  }
   private startResource(p: Player) {
     return resourceStart(
       heroClass(p.profile.classId).resource,
-      heroLevel(p.profile),
+      this.combatLevel(p),
     );
   }
   private maxResource(p: Player) {
     return resourceMax(
       heroClass(p.profile.classId).resource,
-      heroLevel(p.profile),
+      this.combatLevel(p),
     );
   }
   private gainResource(p: Player, amount: number) {
@@ -562,16 +687,34 @@ export class IslandRoom extends Room {
   private snapshot(): WorldSnapshot {
     return {
       time: Date.now(),
+      conditions: worldConditions(Date.now()),
       roomId: this.roomId,
       queue: [...this.queue],
       players: [...this.players.values()].map((p) => {
         const c = p.profile.creatures.find((c) => c.id === p.profile.active);
         return {
+          practice: p.practice,
           id: p.profile.id,
           nickname: p.profile.nickname,
           classId: p.profile.classId,
+          appearance: normalizeAppearance(p.profile.appearance),
+          companionName: c ? c.nickname || SPECIES[c.species].name : undefined,
           petMode: p.petMode ?? "assist",
           petTarget: p.petTarget,
+          pet:
+            p.pet && c
+              ? {
+                  x: p.pet.x,
+                  z: p.pet.z,
+                  yaw: p.pet.yaw,
+                  moving: p.pet.moving,
+                  hp: c.hp,
+                  maxHp: c.maxHp,
+                  cooldowns: p.pet.cooldowns,
+                  cast: p.pet.cast,
+                  shiny: c.shiny,
+                }
+              : undefined,
           cast: p.cast,
           dash: p.dash,
           x: p.x,
@@ -600,7 +743,7 @@ export class IslandRoom extends Room {
           guardUntil: p.guardUntil,
           stunUntil: p.stunUntil,
           slowUntil: p.slowUntil,
-          level: heroLevel(p.profile),
+          level: this.combatLevel(p),
           resource: Math.floor(p.resource),
           resourceMax: this.maxResource(p),
           combo: p.combo,
@@ -614,6 +757,8 @@ export class IslandRoom extends Room {
       wilds: [...this.wilds.values()].map((w) => ({
         id: w.id,
         species: w.species,
+        shiny: w.shiny,
+        activity: w.activity,
         x: w.x,
         z: w.z,
         level: w.level,
@@ -636,6 +781,95 @@ export class IslandRoom extends Room {
     };
   }
   private async command(p: Player, c: Exclude<ValidCommand, { kind: "move" }>) {
+    if (c.kind === "dexReward") {
+      const reward = DEX_REWARDS.find((reward) => reward.count === c.count);
+      await this.update(p, c.requestId, async (profile, tx) => {
+        if (
+          !reward ||
+          !profile.pokedex ||
+          profile.pokedex.caught.length < reward.count ||
+          profile.pokedex.rewards.includes(reward.count)
+        )
+          throw new Error("That Pokédex reward is not available.");
+        await tx.credit(
+          profile,
+          reward.amount,
+          "Pokédex completion",
+          `dex:${reward.count}`,
+        );
+        profile.pokedex.rewards.push(reward.count);
+      });
+      return;
+    }
+    if (c.kind === "petMove") {
+      const creature = activeCreature(p.profile),
+        move = POKEMON_MOVES[creature.moves[c.slot]];
+      if (!move || creature.hp <= 0 || heroHp(p.profile) <= 0 || p.duelId)
+        throw new Error("Your companion cannot use that move now.");
+      const target = this.wilds.get(c.target ?? p.petTarget ?? "");
+      if (
+        move.shape !== "self" &&
+        (!target ||
+          target.hp <= 0 ||
+          distance(p, target) > 24 ||
+          !lineOfSight(p, target))
+      )
+        throw new Error("Select a nearby living target.");
+      if (isSafeArea(p.x, p.z) && !isTraining(target))
+        throw new Error("Leave the sanctuary to battle.");
+      p.pet ??= deployCompanion(p, creature.id);
+      if ((p.pet.cooldowns[move.id] ?? 0) > Date.now())
+        throw new Error("That companion move is cooling down.");
+      if (!(await this.update(p, c.requestId, () => {}, false))) return;
+      p.pet.command = { slot: c.slot, target: target?.id ?? p.profile.id };
+      if (target) p.petTarget = target.id;
+      return;
+    }
+    if (c.kind === "swap") {
+      if (
+        p.duelId ||
+        heroHp(p.profile) <= 0 ||
+        (p.petSwapUntil ?? 0) > Date.now()
+      )
+        throw new Error("Wait before swapping companions.");
+      const id = p.profile.team[c.slot],
+        creature = p.profile.creatures.find((creature) => creature.id === id);
+      if (!creature || creature.hp <= 0)
+        throw new Error("Choose a healthy teammate.");
+      if (
+        !(await this.update(p, c.requestId, (profile) => {
+          profile.active = id;
+        }))
+      )
+        return;
+      p.pet = deployCompanion(p, id);
+      p.pet.nextAction = Date.now() + 1200;
+      p.petSwapUntil = Date.now() + 10000;
+      this.event({
+        type: "pet-swap",
+        source: p.profile.id,
+        actor: "companion",
+        message: `${creature.nickname || SPECIES[creature.species].name}, let's go!`,
+      });
+      return;
+    }
+    if (c.kind === "learn") {
+      requirePeace(p);
+      await this.update(p, c.requestId, (profile) => {
+        const creature = profile.creatures.find(
+          (creature) => creature.id === c.creature,
+        );
+        if (
+          !creature ||
+          c.slot >= creature.moves.length ||
+          !availableMoves(creature.species, creature.level).includes(c.move) ||
+          creature.moves.includes(c.move)
+        )
+          throw new Error("Choose a learned, unequipped move.");
+        creature.moves[c.slot] = c.move;
+      });
+      return;
+    }
     const now = Date.now();
     if (c.kind === "dash") {
       const duel = this.duels.get(p.duelId ?? "");
@@ -649,7 +883,7 @@ export class IslandRoom extends Room {
       if (duel && duel.state !== "active")
         throw new Error("Resolve your duel first.");
       const magnitude = Math.hypot(c.dx, c.dz);
-      if (!(await this.update(p, c.requestId, () => {}))) return;
+      if (!(await this.update(p, c.requestId, () => {}, false))) return;
       this.cancelCast(p);
       p.dash = {
         x: magnitude > 0.1 ? c.dx / magnitude : Math.sin(p.yaw),
@@ -673,7 +907,7 @@ export class IslandRoom extends Room {
           target.hp <= 0 ||
           distance(p, target) > 24 ||
           !lineOfSight(p, target) ||
-          isSafeArea(p.x, p.z) ||
+          (isSafeArea(p.x, p.z) && !isTraining(target)) ||
           heroHp(p.profile) <= 0
         )
           throw new Error(
@@ -682,7 +916,13 @@ export class IslandRoom extends Room {
         p.petTarget = target.id;
       } else {
         p.petMode = c.mode;
-        if (c.mode === "passive") p.petTarget = undefined;
+        if (c.mode === "passive") {
+          p.petTarget = undefined;
+          if (p.pet) {
+            p.pet.command = undefined;
+            if (!p.pet.cast?.released) p.pet.cast = undefined;
+          }
+        }
       }
       return;
     }
@@ -706,6 +946,10 @@ export class IslandRoom extends Room {
     }
     if (c.kind === "attack") {
       await this.attack(p, c.target, c.slot, c.requestId);
+      return;
+    }
+    if (c.kind === "practiceReset") {
+      resetPractice(p, this.wilds);
       return;
     }
     if (c.kind === "autoattack") {
@@ -776,35 +1020,62 @@ export class IslandRoom extends Room {
       if (!STARTERS.includes(c.species))
         throw new Error("Choose one of the three starters.");
     }
-    if (c.kind === "class") {
+    if (c.kind === "class" || c.kind === "appearance") {
       requirePeace(p);
       if (biomeAt(p.x, p.z) !== "town")
-        throw new Error("Return to Hearthwick to change class.");
+        throw new Error("Return to Hearthwick to change your character.");
     }
     if (c.kind === "buy") requirePlace(p, "shop");
     if (c.kind === "heal") {
       requirePlace(p, "heal");
       requirePeace(p);
     }
-    if (c.kind === "team" || c.kind === "evolve") {
+    if (c.kind === "evolve") {
+      const creature = p.profile.creatures.find(
+        (creature) => creature.id === c.id,
+      );
+      if (
+        !POKEMON[creature?.species ?? ""]?.evolutions.some(
+          (rule) => rule.location,
+        )
+      )
+        requirePlace(p, "stable");
+      requirePeace(p);
+    }
+    if (c.kind === "team") {
       requirePlace(p, "stable");
       requirePeace(p);
     }
     if (c.kind === "deploy") requirePeace(p);
     if (c.kind === "use" && now - p.lastUse < 1000)
       throw new Error("Wait a moment before using another item.");
+    let evolutionResult: GameEvent["evolution"];
     const applied = await this.update(p, c.requestId, async (profile, tx) => {
       switch (c.kind) {
+        case "appearance":
+          profile.appearance = normalizeAppearance(c.appearance);
+          if (c.nickname) profile.nickname = c.nickname;
+          break;
+        case "renamePet": {
+          const pet = profile.creatures.find((pet) => pet.id === c.creature);
+          if (!pet) throw new Error("That Pokémon is not in your collection.");
+          pet.nickname = c.nickname;
+          break;
+        }
         case "class":
           profile.classId = c.classId;
+          if (c.appearance)
+            profile.appearance = normalizeAppearance(c.appearance);
           break;
         case "starter": {
           profile.classId = c.classId ?? "knight";
+          profile.appearance = normalizeAppearance(c.appearance);
           profile.heroHp = heroMaxHp(profile);
           if (profile.creatures.length)
             throw new Error("You already have a companion.");
           const creature = makeCreature(c.species);
           profile.creatures.push(creature);
+          recordPokemon(profile, creature.species, true);
           profile.team = [creature.id];
           profile.active = creature.id;
           increment(profile, "starter");
@@ -836,25 +1107,13 @@ export class IslandRoom extends Room {
           profile.active = c.id;
           break;
         case "evolve": {
-          const creature = profile.creatures.find(
-            (creature) => creature.id === c.id,
-          );
-          if (!creature) throw new Error("Creature not found.");
-          const evolution = SPECIES[creature.species].evolution;
-          if (!evolution || creature.evolved)
-            throw new Error("This creature cannot ascend again.");
-          if (creature.level < evolution.level)
-            throw new Error(`Reach level ${evolution.level} first.`);
-          await tx.credit(
+          evolutionResult = await evolvePokemon(
             profile,
-            -evolution.cost,
-            "ascension",
-            `evolve:${creature.id}`,
+            c.id,
+            c.species,
+            biomeAt(p.x, p.z),
+            tx,
           );
-          creature.evolved = true;
-          creature.maxHp = maxHp(creature.species, creature.level, true);
-          creature.hp = creature.maxHp;
-          increment(profile, "evolutions");
           break;
         }
         case "acceptQuest":
@@ -869,6 +1128,13 @@ export class IslandRoom extends Room {
       }
     });
     if (!applied) return;
+    if (evolutionResult)
+      this.event({
+        type: "evolution",
+        source: p.profile.id,
+        evolution: evolutionResult,
+        message: `${POKEMON[evolutionResult.to].name} evolved!`,
+      });
     if (c.kind === "use") {
       p.lastUse = now;
       if (itemEffect === "bait") p.bait = true;
@@ -891,7 +1157,6 @@ export class IslandRoom extends Room {
       heal: "Your entire collection is rested and ready.",
       team: "Your expedition team has been updated.",
       deploy: "Companion deployment updated.",
-      evolve: "A brighter shape! Your companion has ascended.",
       acceptQuest: "Quest accepted. Your journal shows the next destination.",
       claim:
         c.kind === "claim"
@@ -900,10 +1165,16 @@ export class IslandRoom extends Room {
           : "Quest complete.",
       use: "Item used.",
     };
+    if (evolutionResult) return;
     this.event(
       {
         type: c.kind === "claim" ? "reward" : c.kind,
-        message: messages[c.kind] ?? "Done.",
+        message:
+          c.kind === "appearance"
+            ? "Your new look is saved."
+            : c.kind === "renamePet"
+              ? "Your companion’s name is saved."
+              : (messages[c.kind] ?? "Done."),
       },
       p,
     );
@@ -926,17 +1197,61 @@ export class IslandRoom extends Room {
       throw new Error("You need healing at the Springhouse.");
     if (p.stunUntil > now) throw new Error("You are briefly stunned.");
     if (companion) {
-      const wild = this.wilds.get(targetId);
-      if (!wild || wild.hp <= 0) return;
-      if ((p.cooldowns.get(ability.id) ?? 0) > now) return;
-      p.cooldowns.set(ability.id, now + ability.cooldown * 1000);
+      const pet = p.pet,
+        move = POKEMON_MOVES[ability.id],
+        wild = this.wilds.get(targetId);
+      if (
+        !pet ||
+        !move ||
+        creature.hp <= 0 ||
+        pet.cast ||
+        pet.nextAction > now ||
+        (pet.cooldowns[ability.id] ?? 0) > now ||
+        p.duelId ||
+        (isSafeArea(p.x, p.z) && !isTraining(wild))
+      )
+        return;
+      if (
+        move.shape !== "self" &&
+        (!wild ||
+          wild.hp <= 0 ||
+          distance(pet, wild) > move.range ||
+          !lineOfSight(pet, wild))
+      )
+        return;
+      pet.cooldowns[ability.id] = now + ability.cooldown * 1000;
+      const target = move.shape === "self" ? pet : wild!;
+      pet.cast = {
+        ability: ability.id,
+        target: move.shape === "self" ? p.profile.id : targetId,
+        startedAt: now,
+        releasesAt: now + move.anticipation,
+        resolvesAt:
+          now +
+          move.anticipation +
+          (move.shape === "self" || move.shape === "melee"
+            ? 0
+            : (distance(pet, target) / move.travelSpeed) * 1000),
+        x: pet.x,
+        z: pet.z,
+        aimX: target.x,
+        aimZ: target.z,
+      };
+      pet.command = undefined;
       p.combatUntil = now + COMBAT_MS;
-      await this.impactAttack(p, targetId, ability, true);
+      this.event({
+        type: "pet-cast",
+        actor: "companion",
+        source: p.profile.id,
+        target: pet.cast.target,
+        ability: ability.id,
+        message: ability.name,
+      });
       return;
     }
     const cls = heroClass(p.profile.classId),
       resourceName = RESOURCES[cls.resource].name;
-    if (!abilityUnlocked(ability, heroLevel(p.profile)))
+    if (!abilityUnlocked(ability, this.combatLevel(p)))
       throw new Error(`${ability.name} unlocks at level ${ability.unlock}.`);
     const self = ["heal", "guard", "evasion"].includes(ability.effect ?? "");
     // Off-GCD abilities (defensives, taunts, interrupts) are instant and usable mid-cast.
@@ -1002,7 +1317,13 @@ export class IslandRoom extends Room {
     if (duel?.state === "invite")
       throw new Error("Resolve your invitation first.");
     if (ability.aoeSelf) {
-      if (!duel && isSafeArea(p.x, p.z))
+      if (
+        !duel &&
+        isSafeArea(p.x, p.z) &&
+        ![...this.wilds.values()].some(
+          (w) => isTraining(w) && distance(p, w) <= (ability.aoe ?? 0),
+        )
+      )
         throw new Error("Leave the sanctuary to battle.");
       targetId = p.profile.id;
     } else {
@@ -1025,7 +1346,7 @@ export class IslandRoom extends Room {
         throw new Error("Move closer to use that ability.");
       if (!lineOfSight(p, target))
         throw new Error("An obstacle blocks this attack.");
-      if (wild && isSafeArea(p.x, p.z))
+      if (wild && !isTraining(wild) && isSafeArea(p.x, p.z))
         throw new Error("Leave the sanctuary to battle.");
       const health = opponent
         ? opponent.duelHp / opponent.duelMax
@@ -1035,7 +1356,7 @@ export class IslandRoom extends Room {
           `The target must be below ${ability.execute * 100}% health.`,
         );
     }
-    if (!(await this.update(p, requestId, () => {}))) return;
+    if (!(await this.update(p, requestId, () => {}, false))) return;
     const combo = ability.finisher ? p.combo : 0;
     if (ability.finisher) p.combo = 0;
     this.spend(p, ability, now);
@@ -1102,7 +1423,10 @@ export class IslandRoom extends Room {
     const duel = this.duels.get(p.duelId ?? "");
     if (
       (duel?.state === "active" ? p.duelHp : heroHp(p.profile)) <= 0 ||
-      (!duel && isSafeArea(p.x, p.z))
+      (!duel &&
+        isSafeArea(p.x, p.z) &&
+        !isTraining(this.wilds.get(cast.target)) &&
+        !ABILITIES[cast.ability].aoeSelf)
     ) {
       p.cast = undefined;
       return;
@@ -1178,7 +1502,7 @@ export class IslandRoom extends Room {
     if (!target || ("hp" in target && target.hp <= 0))
       if (explicit) throw new Error("Select a living enemy to attack.");
       else return;
-    if (!p.duelId && isSafeArea(p.x, p.z)) {
+    if (!p.duelId && isSafeArea(p.x, p.z) && !isTraining(target)) {
       if (explicit) throw new Error("Leave the sanctuary to battle.");
       return;
     }
@@ -1203,7 +1527,21 @@ export class IslandRoom extends Room {
   ): HitChances {
     const cls = heroClass(p.profile.classId);
     if (companion)
-      return { miss: 0.04, dodge: 0, parry: 0, block: 0, crit: 0.05 };
+      return {
+        miss: 1 - (POKEMON_MOVES[ability?.id ?? ""]?.accuracy ?? 0.96),
+        dodge: 0,
+        parry: 0,
+        block: 0,
+        crit: 0.05,
+      };
+    if (isTraining(wild))
+      return {
+        miss: 0,
+        dodge: 0,
+        parry: 0,
+        block: 0,
+        crit: cls.crit + (ability?.crit ?? 0),
+      };
     if (wild)
       return heroAttackChances(cls, ability, heroLevel(p.profile), wild.level);
     const defender = heroClass(opponent?.profile.classId);
@@ -1238,15 +1576,16 @@ export class IslandRoom extends Room {
         : undefined;
     const wild = p.duelId ? undefined : this.wilds.get(targetId);
     if (!creature || (!opponent && (!wild || wild.hp <= 0))) return;
+    if (wild && !isTraining(wild) && isSafeArea(p.x, p.z)) return;
     const target = opponent ?? wild!;
     if (
-      !lineOfSight(p, target) ||
+      !lineOfSight(companion && p.pet ? p.pet : p, target) ||
       (opponent && (!opponent.online || opponent.duelHp <= 0))
     )
       return;
     const report = (outcome: Outcome, amount = 0) =>
       this.event({
-        type: companion ? "attack" : "impact",
+        type: "impact",
         actor: companion ? "companion" : "hero",
         message: `${ability.name} · ${amount || outcome}`,
         source: p.profile.id,
@@ -1269,7 +1608,7 @@ export class IslandRoom extends Room {
       ? activeCreature(opponent.profile).species
       : wild!.species;
     const level = opponent
-      ? 10
+      ? DUEL_LEVEL
       : companion
         ? creature.level
         : heroLevel(p.profile);
@@ -1282,20 +1621,88 @@ export class IslandRoom extends Room {
       (opponent ? 1 : creature.evolved ? 1.2 : 1);
     const shattered =
       ability.shatter && (target.slowUntil > now || target.stunUntil > now);
+    const matchup = isTraining(wild)
+      ? 1
+      : effectiveness(
+          ability.element,
+          SPECIES[targetSpecies].element,
+          POKEMON[targetSpecies]?.types,
+        );
+    if (!companion && !matchup) return report("evade");
     let damage = Math.max(
       1,
       Math.round(
         base *
-          effectiveness(ability.element, SPECIES[targetSpecies].element) *
+          matchup *
           outcomeScale(outcome, isSpell(ability)) *
           variance() *
           (shattered ? 3 : 1) *
           (!companion && hasAura(p, "enrage", now) ? 1.2 : 1),
       ),
     );
+    const move = companion ? POKEMON_MOVES[ability.id] : undefined;
+    if (move && POKEMON[creature.species]) {
+      const attackStats = pokemonStats(
+        creature.species,
+        creature.level,
+        creature.ivs,
+        creature.nature,
+      );
+      const defenseStats = POKEMON[targetSpecies]
+        ? pokemonStats(targetSpecies, wild?.level ?? 10)
+        : {
+            defense: 20 + (wild?.level ?? 1) * 4,
+            specialDefense: 20 + (wild?.level ?? 1) * 4,
+          };
+      damage = pokemonDamage({
+        level,
+        power: move.power,
+        attack:
+          move.category === "physical"
+            ? attackStats.attack
+            : attackStats.specialAttack,
+        defense:
+          move.category === "physical"
+            ? defenseStats.defense
+            : defenseStats.specialDefense,
+        type: move.type,
+        attackerTypes: POKEMON[creature.species].types,
+        defenderTypes: isTraining(wild)
+          ? []
+          : (POKEMON[targetSpecies]?.types ?? [
+              LEGACY_TYPES[SPECIES[targetSpecies].element],
+            ]),
+        critical: outcome === "crit",
+        random: Math.random(),
+      });
+      if (
+        typeMultiplier(
+          move.type,
+          isTraining(wild)
+            ? []
+            : (POKEMON[targetSpecies]?.types ?? [
+                LEGACY_TYPES[SPECIES[targetSpecies].element],
+              ]),
+        ) === 0
+      )
+        return report("evade");
+    }
     if (target.guardUntil > now)
-      damage = Math.max(1, Math.round(damage * 0.35));
-    this.dealDamage(p, target, damage, companion ? 0.5 : cls.threat);
+      damage = Math.max(damage > 0 ? 1 : 0, Math.round(damage * 0.35));
+    this.dealDamage(
+      p,
+      target,
+      damage,
+      companion ? 0.5 : cls.threat,
+      ability.id,
+    );
+    if (companion && ability.effect === "heal" && creature.hp > 0) {
+      creature.hp = Math.min(
+        creature.maxHp,
+        creature.hp + Math.round(damage * 0.5),
+      );
+      p.hpDirty = true;
+    }
     if (!companion) {
       this.gainResource(p, ability.generate ?? 0);
       if (ability.combo) p.combo = Math.min(COMBO_MAX, p.combo + ability.combo);
@@ -1378,11 +1785,16 @@ export class IslandRoom extends Room {
     target: Wild | Player,
     damage: number,
     threat: number,
+    ability = "weapon",
   ) {
     const now = Date.now();
     if ("profile" in target) {
       target.duelHp = Math.max(0, target.duelHp - damage);
       target.combatUntil = now + COMBAT_MS;
+      return;
+    }
+    if (isTraining(target)) {
+      hitTrainingTarget(p, target, damage, ability, now);
       return;
     }
     target.hp = Math.max(0, target.hp - damage);
@@ -1412,7 +1824,7 @@ export class IslandRoom extends Room {
     if (
       !target ||
       ("species" in target ? target.hp <= 0 : target.duelHp <= 0) ||
-      (!p.duelId && isSafeArea(p.x, p.z)) ||
+      (!p.duelId && isSafeArea(p.x, p.z) && !isTraining(wild)) ||
       heroHp(p.profile) <= 0 ||
       (wild && weakenedPokemon(wild))
     ) {
@@ -1455,7 +1867,7 @@ export class IslandRoom extends Room {
     let damage = Math.max(
       1,
       Math.round(
-        swingDamage(cls, opponent ? 10 : heroLevel(p.profile)) *
+        swingDamage(cls, opponent ? DUEL_LEVEL : heroLevel(p.profile)) *
           outcomeScale(outcome, false) *
           (hasAura(p, "enrage", now) ? 1.2 : 1),
       ),
@@ -1521,25 +1933,35 @@ export class IslandRoom extends Room {
       throw new Error("Wait for your last capsule to settle.");
     if (w.contributors.size && !w.contributors.has(p.profile.id))
       throw new Error("Help with this encounter before attempting to tame.");
-    if (w.hp / w.maxHp > 0.75 && !p.bait)
+    if (
+      w.hp / w.maxHp > 0.75 &&
+      !p.bait &&
+      !(w.activity === "sleep" && Math.hypot(p.dx, p.dz) < 0.1)
+    )
       throw new Error("Weaken this creature or use Sweetseed bait first.");
     const chance = captureChance(
       SPECIES[w.species].difficulty,
       w.hp,
       w.maxHp,
       ITEMS[item].value,
-      w.slowUntil > now || w.stunUntil > now,
+      w.slowUntil > now ||
+        w.stunUntil > now ||
+        (w.activity === "sleep" && Math.hypot(p.dx, p.dz) < 0.1),
       p.bait,
     );
     const success = tutorialCapture(p.profile) || Math.random() < chance;
     const caught = makeCreature(w.species, w.level);
+    caught.shiny = w.shiny ?? false;
+    const captureBiome = biomeAt(w.x, w.z);
     const applied = await this.update(p, request, async (profile, tx) => {
       consume(profile, item);
       if (success) {
         await tx.capture(w.encounter, profile.id, caught.id);
         profile.creatures.push(caught);
+        recordPokemon(profile, caught.species, true);
         if (profile.team.length < 3) profile.team.push(caught.id);
         increment(profile, "captures");
+        recordQuestEvent(profile, `research:${captureBiome}`, caught.species);
       }
     });
     if (!applied) return;
@@ -1555,6 +1977,12 @@ export class IslandRoom extends Room {
         {
           type: "capture",
           message: `${SPECIES[w.species].name} joined your collection!`,
+          capture: {
+            ...capturePresentation(true),
+            species: w.species,
+            shiny: w.shiny ?? false,
+            creatureId: caught.id,
+          },
           target: w.id,
           source: p.profile.id,
         },
@@ -1567,6 +1995,11 @@ export class IslandRoom extends Room {
       this.event(
         {
           type: "capture-failed",
+          capture: {
+            ...capturePresentation(false),
+            species: w.species,
+            shiny: w.shiny ?? false,
+          },
           message:
             "The creature slipped free. Weaken it further and try again.",
           target: w.id,
@@ -1577,6 +2010,7 @@ export class IslandRoom extends Room {
     }
   }
   private async defeatWild(w: Wild) {
+    if (isTraining(w)) return;
     this.resetCombat(w);
     w.cast = undefined;
     w.hp = 0;
@@ -1594,6 +2028,7 @@ export class IslandRoom extends Room {
     await this.rewardWild(w);
   }
   private async rewardWild(w: Wild) {
+    if (isTraining(w)) return;
     for (const [id, damage] of w.contributors) {
       if (damage < Math.max(1, w.maxHp * (w.boss ? 0.05 : 0.01))) continue;
       const reward = w.boss ? 180 : w.elite ? 55 : 12 + w.level * 2;
@@ -1656,8 +2091,13 @@ export class IslandRoom extends Room {
     const now = Date.now();
     for (const p of this.players.values()) {
       if (!isCurrent(p, this) || !p.online) continue;
-      const active = p.profile.creatures.find((c) => c.id === p.profile.active);
-      if (!p.duelId && isSafeArea(p.x, p.z)) {
+      if (
+        !p.duelId &&
+        isSafeArea(p.x, p.z) &&
+        !isTraining(
+          this.wilds.get(p.auto?.target ?? p.cast?.target ?? p.petTarget ?? ""),
+        )
+      ) {
         p.combatUntil = 0;
         p.petTarget = undefined;
         p.auto = undefined;
@@ -1674,7 +2114,8 @@ export class IslandRoom extends Room {
         );
         const duel = this.duels.get(p.duelId ?? "");
         if (
-          duel?.state !== "active" ||
+          !duel?.arena ||
+          duel.state !== "active" ||
           distance(next, PLACES.find((place) => place.id === "arena")!) < 17
         ) {
           p.x = next.x;
@@ -1696,7 +2137,8 @@ export class IslandRoom extends Room {
           );
           const duel = this.duels.get(p.duelId ?? "");
           if (
-            duel?.state !== "active" ||
+            !duel?.arena ||
+            duel.state !== "active" ||
             distance(next, PLACES.find((place) => place.id === "arena")!) < 17
           ) {
             p.x = next.x;
@@ -1750,28 +2192,7 @@ export class IslandRoom extends Room {
           hp + Math.max(1, heroMaxHp(p.profile) * OUT_OF_COMBAT_REGEN),
         );
       }
-      if (
-        p.petTarget &&
-        !p.duelId &&
-        active &&
-        active.hp > 0 &&
-        heroHp(p.profile) > 0
-      ) {
-        const target = this.wilds.get(p.petTarget);
-        if (
-          !target ||
-          target.hp <= 0 ||
-          weakenedPokemon(target) ||
-          distance(p, target) > 24 ||
-          isSafeArea(p.x, p.z) ||
-          !lineOfSight(p, target)
-        )
-          p.petTarget = undefined;
-        else if (now > (p.petNextAttack ?? 0) && p.stunUntil <= now) {
-          p.petNextAttack = now + 2500;
-          await this.attack(p, target.id, 0, randomUUID(), true);
-        }
-      }
+      await this.companionCombat.tick(p, now);
       if (heroHp(p.profile) === 0 && !p.duelId) {
         p.combatUntil = 0;
       }
@@ -1800,6 +2221,13 @@ export class IslandRoom extends Room {
             p,
           );
         }
+        for (const wild of this.wilds.values())
+          if (
+            wild.hp > 0 &&
+            distance(p, wild) < 28 &&
+            recordPokemon(p.profile, wild.species)
+          )
+            p.hpDirty = true;
         const biome = biomeAt(p.x, p.z);
         if (biome !== "town" && !p.profile.discoveries.includes(biome)) {
           await this.update(p, `discovery:${biome}`, async (profile, tx) => {
@@ -1819,7 +2247,39 @@ export class IslandRoom extends Room {
         }
       }
     }
+    const visitors = [...this.players.values()]
+      .filter((p) => p.online && heroHp(p.profile) > 0 && !p.duelId)
+      .flatMap((p) => {
+        const visitors = [
+          {
+            id: p.profile.id,
+            x: p.x,
+            z: p.z,
+            moving: Math.hypot(p.dx, p.dz) > 0.1,
+          },
+        ];
+        if (
+          p.pet &&
+          p.profile.creatures.some((c) => c.id === p.pet!.id && c.hp > 0)
+        )
+          visitors.push({
+            id: p.profile.id,
+            x: p.pet.x,
+            z: p.pet.z,
+            moving: p.pet.moving,
+          });
+        return visitors;
+      });
     for (const w of this.wilds.values()) {
+      if (
+        POKEMON[w.species] &&
+        !w.threat.size &&
+        !pokemonAvailable(w.species, now)
+      ) {
+        w.hp = 0;
+        w.respawnAt = now + 1000;
+        continue;
+      }
       if (w.hp <= 0) {
         if (w.rewardPending) await this.rewardWild(w);
         if (
@@ -1827,6 +2287,7 @@ export class IslandRoom extends Room {
           (w.respawnAt ?? Infinity) <= now &&
           canRespawn(w.home, this.players.values())
         ) {
+          w.shiny = !!POKEMON[w.species] && Math.random() < 1 / 512;
           w.hp = w.maxHp;
           w.x = w.home.x;
           w.z = w.home.z;
@@ -1840,6 +2301,10 @@ export class IslandRoom extends Room {
           w.resetting = false;
           this.resetCombat(w);
         }
+        continue;
+      }
+      if (isTraining(w)) {
+        tickTrainingTarget(w, this.players, now, (event) => this.event(event));
         continue;
       }
       for (const aura of dueTicks(w, now)) {
@@ -1885,6 +2350,15 @@ export class IslandRoom extends Room {
         await this.advanceWildCast(w, now);
         continue;
       }
+      if (POKEMON[w.species] && !w.threat.size && !w.resetting) {
+        const aggro = tickPokemonAmbient(w, visitors, this.wilds.values(), now);
+        if (aggro) {
+          w.threat.set(aggro, 1);
+          w.nextSwing = now + 700;
+          w.nextSpecial = now + 3000;
+        } else continue;
+      }
+      w.activity = undefined;
       const target = this.wildTarget(w, now);
       if (target) await this.engage(w, target, now);
       else if (distance(w, w.home) > 2.5 || w.state === "retreat") {
@@ -1925,14 +2399,7 @@ export class IslandRoom extends Room {
         }
       }
     }
-    this.queue = this.queue.filter((id) => {
-      const player = this.players.get(id);
-      return (
-        player?.online &&
-        !player.duelId &&
-        distance(player, PLACES.find((place) => place.id === "arena")!) <= 18
-      );
-    });
+    this.duelSystem.pruneQueue();
     for (const d of this.duels.values()) {
       if (d.state === "invite" && now > d.expires) this.cancelDuel(d);
       if (d.state === "active" && now > d.expires)
@@ -1971,7 +2438,7 @@ export class IslandRoom extends Room {
   private canFight(w: Wild, p: Player) {
     return (
       p.online &&
-      !p.duelId &&
+      this.duels.get(p.duelId ?? "")?.state !== "active" &&
       isCurrent(p, this) &&
       p.profile.creatures.length > 0 &&
       heroHp(p.profile) > 0 &&
@@ -2241,6 +2708,16 @@ export class IslandRoom extends Room {
     now: number,
   ) {
     for (const player of this.players.values()) {
+      if (
+        player.pet &&
+        this.canFight(w, player) &&
+        !w.castVictims?.has(`pet:${player.profile.id}`) &&
+        castHits(cast, player.pet, now)
+      ) {
+        w.castVictims ??= new Set();
+        w.castVictims.add(`pet:${player.profile.id}`);
+        this.companionCombat.hit(w, player, 1.7, now);
+      }
       if (w.castVictims?.has(player.profile.id)) continue;
       if (
         this.canFight(w, player) &&
@@ -2277,11 +2754,30 @@ export class IslandRoom extends Room {
     kind: "auto" | "bolt" | "telegraph" | "spell",
   ) {
     const now = Date.now();
-    if (!p.profile.creatures.length || p.duelId || !isCurrent(p, this)) return;
+    if (
+      !p.profile.creatures.length ||
+      this.duels.get(p.duelId ?? "")?.state === "active" ||
+      !isCurrent(p, this)
+    )
+      return;
+    const invitation = this.duels.get(p.duelId ?? "");
+    if (invitation?.state === "invite") this.cancelDuel(invitation);
     const c =
       p.profile.creatures.find((c) => c.id === p.profile.active) ??
       p.profile.creatures[0];
     if (heroHp(p.profile) <= 0) return;
+    if (
+      (kind === "auto" || kind === "bolt") &&
+      p.pet &&
+      c.id === p.pet.id &&
+      c.hp > 0 &&
+      p.petTarget === w.id &&
+      distance(p.pet, w) < (kind === "auto" ? 4 : 14) &&
+      (p.pet.guardUntil > now || Math.random() < 0.45)
+    ) {
+      this.companionCombat.hit(w, p, kind === "auto" ? 1 : 1.6, now);
+      return;
+    }
     const report = (outcome: Outcome, amount = 0) =>
       this.event({
         type: "hit",

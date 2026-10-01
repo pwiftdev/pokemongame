@@ -9,11 +9,27 @@ type Effect = {
 };
 export function createEffectPool(limit = 220) {
   const effects: Effect[] = [];
+  const idle = new Map<string, AbstractMesh[]>();
   function release(effect: Effect) {
-    effect.mesh.dispose();
+    const key = effect.mesh.metadata?.effectPoolKey as string | undefined;
+    const bucket = key ? (idle.get(key) ?? []) : undefined;
+    if (key && bucket && bucket.length < 24) {
+      effect.mesh.setEnabled(false);
+      bucket.push(effect.mesh);
+      idle.set(key, bucket);
+    } else effect.mesh.dispose();
     effect.cleanup?.();
   }
   return {
+    acquire<T extends AbstractMesh>(key: string, create: () => T): T {
+      const mesh = (idle.get(key)?.pop() as T | undefined) ?? create();
+      mesh.metadata = { effectPoolKey: key };
+      mesh.visibility = 1;
+      mesh.scaling.setAll(1);
+      mesh.rotation.setAll(0);
+      mesh.setEnabled(true);
+      return mesh;
+    },
     track(
       mesh: AbstractMesh,
       duration: number,
@@ -57,6 +73,9 @@ export function createEffectPool(limit = 220) {
     dispose() {
       for (const effect of effects) release(effect);
       effects.length = 0;
+      for (const meshes of idle.values())
+        for (const mesh of meshes) mesh.dispose();
+      idle.clear();
     },
   };
 }

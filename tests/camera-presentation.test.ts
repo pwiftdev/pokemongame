@@ -62,6 +62,26 @@ describe("camera presentation", () => {
     expect(bodyVisibility(3.1, 2.4, 3.8)).toBeCloseTo(0.5);
     expect(bodyVisibility(15, 2.4, 3.8)).toBe(1);
   });
+  it("keeps distance-boosted nameplates within their pixel budget across viewport sizes", () => {
+    for (const viewport of [800, 1920, 3840]) {
+      for (const depth of [4, 15, 60]) {
+        const aspect = viewport / 1080;
+        const worldWidth = depth * 2 * Math.tan(0.8 / 2) * aspect;
+        const label = labelPresentation(
+          depth,
+          3.4,
+          0.8,
+          aspect,
+          Math.min(0.24, 240 / viewport),
+          2.5,
+        );
+        expect(label.visible).toBe(true);
+        expect(
+          ((3.4 * label.scale) / worldWidth) * viewport,
+        ).toBeLessThanOrEqual(Math.min(240, viewport * 0.24) + 0.001);
+      }
+    }
+  });
   it("uses forward depth rather than distance to distinguish labels behind the viewer", () => {
     const camera = new Vector3(0, 2, -5),
       forward = new Vector3(0, 0, 1);

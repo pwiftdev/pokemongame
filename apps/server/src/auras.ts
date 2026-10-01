@@ -45,6 +45,11 @@ export function hasAura(holder: AuraHolder, id: AuraId, now: number) {
   if (mirrored) return holder[mirrored] > now;
   return (holder.auras.get(id)?.until ?? 0) > now;
 }
+export function removeAura(holder: AuraHolder, id: AuraId) {
+  holder.auras.delete(id);
+  const field = MIRRORED[id as keyof typeof MIRRORED];
+  if (field) holder[field] = 0;
+}
 export function clearAuras(holder: AuraHolder) {
   holder.auras.clear();
   holder.guardUntil = 0;

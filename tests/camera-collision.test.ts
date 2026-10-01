@@ -33,6 +33,21 @@ function setup() {
   return { camera, canopy, collision: createCameraCollision(scene, camera) };
 }
 describe("camera geometry obstruction", () => {
+  it("includes scenery that finishes loading after the camera was created", () => {
+    const { camera, canopy, collision } = setup();
+    canopy.setEnabled(false);
+    const late = MeshBuilder.CreateSphere(
+      "late rock",
+      { diameter: 6 },
+      camera.getScene(),
+    );
+    late.metadata = { cameraObstacle: true };
+    late.position.set(0, 4, -9);
+    late.computeWorldMatrix(true);
+    collision.include([late]);
+    collision.update(0, 0.016);
+    expect(camera.radius).toBeLessThan(8);
+  });
   it("stays in front of actual canopy geometry even when normal picking is disabled", () => {
     const { camera, collision } = setup();
     collision.reset(15);

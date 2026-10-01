@@ -1,5 +1,4 @@
 import {
-  ROADS,
   WORLD_RADIUS,
   REGIONS,
   regionBiome,
@@ -14,6 +13,12 @@ import {
   VertexData,
   type Scene,
 } from "@babylonjs/core";
+import {
+  roadDistance,
+  lakeAt,
+  lakeDistance,
+} from "../../../../packages/shared/geography";
+import { buildBiomePaths } from "./biome-paths";
 import { createGroundTextures } from "./ground-texture";
 import { splitTerrain } from "./terrain-tiles";
 import { createWater } from "./atmosphere";
@@ -48,12 +53,33 @@ export function buildTerrain(scene: Scene) {
     const t = Math.max(0, Math.min(1, value));
     return t * t * (3 - 2 * t);
   };
-  const resolution = 300;
+  const resolution = 360;
   const biomeColors = new Map(
     REGIONS.map((region) => [region.id, Color3.FromHexString(region.color)]),
   );
   const biomeColor = (x: number, z: number) =>
-    biomeColors.get(regionBiome(x, z))!;
+    biomeColors.get(
+      regionBiome(x + Math.sin(z * 0.075) * 4, z + Math.sin(x * 0.06) * 4),
+    )!;
+  const trailColors = Object.fromEntries(
+    Object.entries({
+      meadow: "#a38b62",
+      forest: "#756745",
+      desert: "#d6b17d",
+      marsh: "#617d65",
+      tundra: "#afc5ce",
+      highlands: "#9d8662",
+    }).map(([name, hex]) => [name, Color3.FromHexString(hex)]),
+  );
+  const shoreColors = {
+    ice: Color3.FromHexString("#b1cdd4"),
+    sand: Color3.FromHexString("#b3a774"),
+    earth: Color3.FromHexString("#6c8971"),
+  };
+  const stoneColors = {
+    snow: Color3.FromHexString("#a7b8c3"),
+    rock: Color3.FromHexString("#8d927c"),
+  };
   for (let z = 0; z <= resolution; z++)
     for (let x = 0; x <= resolution; x++) {
       const wx = (x / resolution - 0.5) * (WORLD_RADIUS * 2 + 4),
@@ -70,6 +96,36 @@ export function buildTerrain(scene: Scene) {
         [0, 7],
       ])
         inland = Color3.Lerp(inland, biomeColor(wx + dx, wz + dz), 0.15);
+      const region = regionBiome(wx, wz);
+      if (region !== "town" && region !== "ruins") {
+        const edge =
+          roadDistance(wx, wz) + Math.sin(wx * 1.7 + wz * 0.9) * 0.22;
+        inland = Color3.Lerp(
+          inland,
+          trailColors[region],
+          1 - blend((edge - 0.65) / 2.1),
+        );
+      }
+      const lake = lakeAt(wx, wz, 1.35);
+      if (lake)
+        inland = Color3.Lerp(
+          inland,
+          lake.frozen
+            ? shoreColors.ice
+            : lake.biome === "desert"
+              ? shoreColors.sand
+              : shoreColors.earth,
+          1 - blend((lakeDistance(lake, wx, wz) - 1) / 0.35),
+        );
+      const slope = Math.hypot(
+        terrainHeight(wx + 1, wz) - h,
+        terrainHeight(wx, wz + 1) - h,
+      );
+      inland = Color3.Lerp(
+        inland,
+        region === "tundra" ? stoneColors.snow : stoneColors.rock,
+        blend((slope - 0.5) / 1.6) * 0.65,
+      );
       const c = Color3.Lerp(
         inland,
         palette.sand,
@@ -108,7 +164,7 @@ export function buildTerrain(scene: Scene) {
   groundMat.diffuseTexture = textures.diffuse;
   groundMat.bumpTexture = textures.normal;
   textures.normal.level = 0.22;
-  for (const [index, tile] of splitTerrain(vd, resolution).entries()) {
+  for (const [index, tile] of splitTerrain(vd, resolution, 36).entries()) {
     const ground = new Mesh(`island terrain:${index}`, scene);
     tile.applyToMesh(ground);
     ground.material = groundMat;
@@ -118,52 +174,7 @@ export function buildTerrain(scene: Scene) {
   }
   const water = createWater(scene);
   palette.path.backFaceCulling = false;
-  const paths = ROADS;
-  paths.forEach((points, pathIndex) => {
-    const samples: Array<[number, number]> = [];
-    for (let i = 1; i < points.length; i++) {
-      const a = points[i - 1],
-        b = points[i],
-        steps = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 1.4);
-      for (let j = 0; j < steps; j++) {
-        const t = j / steps;
-        samples.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
-      }
-    }
-    samples.push(points[points.length - 1]);
-    const p: number[] = [],
-      ix: number[] = [],
-      n: number[] = [];
-    samples.forEach(([x, z], i) => {
-      const previous = samples[Math.max(0, i - 1)],
-        next = samples[Math.min(samples.length - 1, i + 1)];
-      const dx = next[0] - previous[0],
-        dz = next[1] - previous[1],
-        length = Math.hypot(dx, dz) || 1;
-      for (const side of [-1, 1]) {
-        const px = x + (dz / length) * 1.9 * side,
-          pz = z - (dx / length) * 1.9 * side;
-        p.push(px, terrainHeight(px, pz) + 0.14 + pathIndex * 0.008, pz);
-      }
-      if (i < samples.length - 1) {
-        const a = i * 2;
-        ix.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-      }
-    });
-    VertexData.ComputeNormals(p, ix, n);
-    const data = new VertexData();
-    data.positions = p;
-    data.indices = ix;
-    data.normals = n;
-    data.uvs = p.flatMap((value, i) =>
-      i % 3 === 0 ? [value / 3, p[i + 2] / 3] : [],
-    );
-    const trail = new Mesh("continuous stone trail", scene);
-    data.applyToMesh(trail);
-    trail.material = palette.path;
-    trail.receiveShadows = true;
-    trail.isPickable = false;
-  });
+  buildBiomePaths(scene, palette.path);
 
   for (const [x, z, r] of [
     [0, -27, 7],
@@ -200,21 +211,6 @@ export function buildTerrain(scene: Scene) {
     square.isPickable = false;
   }
   const nearPath = (x: number, z: number, margin = 4.5) =>
-    paths.some((points) =>
-      points.some((p, i) => {
-        if (!i) return false;
-        const a = points[i - 1],
-          dx = p[0] - a[0],
-          dz = p[1] - a[1];
-        const t = Math.max(
-          0,
-          Math.min(
-            1,
-            ((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz),
-          ),
-        );
-        return Math.hypot(x - a[0] - dx * t, z - a[1] - dz * t) < margin;
-      }),
-    );
+    roadDistance(x, z) < margin;
   return { water, nearPath };
 }

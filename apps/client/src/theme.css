@@ -1,0 +1,186 @@
+@import "./fonts.css";
+:root {
+  --wop-ink: #060b26;
+  --wop-deep: #0b1440;
+  --wop-panel: #121c52;
+  --wop-line: #1c2866;
+  --wop-hi: #2b3c99;
+  --wop-scrim: rgba(6, 11, 38, 0.8);
+  --wop-red: #f2352b;
+  --wop-red-l: #ff7a6e;
+  --wop-red-d: #b11d15;
+  --wop-yellow: #ffc928;
+  --wop-yellow-l: #ffe58a;
+  --wop-yellow-d: #d98e00;
+  --wop-cyan: #5ce1ff;
+  --wop-cyan-l: #b5f1ff;
+  --wop-cyan-d: #2aa9cc;
+  --wop-green: #3ddc84;
+  --wop-green-d: #22a45c;
+  --wop-fire-text: #ff8a7f;
+  --wop-text: #fff;
+  --wop-text-2: #c9d3f5;
+  --wop-text-3: #9fb0e8;
+  --wop-text-off: #6f7fc4;
+  --wop-font-display: "Pixelify Sans", monospace;
+  --wop-font-ui: "Chakra Petch", sans-serif;
+  --wop-font-label: "Silkscreen", monospace;
+  --wop-border: 2px solid var(--wop-ink);
+  --wop-raised: inset 0 2px 0 var(--wop-hi), 0 4px 0 var(--wop-ink);
+  --wop-primary:
+    inset 0 4px 0 var(--wop-red-l), inset 0 -6px 0 var(--wop-red-d),
+    0 5px 0 var(--wop-ink);
+  --wop-hud-x: clamp(12px, 1.667vw, 32px);
+  --wop-hud-y: clamp(12px, 2.6vh, 28px);
+  --cream: var(--wop-deep);
+  --paper: var(--wop-panel);
+  --green: var(--wop-green);
+  --ink: var(--wop-text);
+  --muted: var(--wop-text-3);
+  --gold: var(--wop-yellow);
+  --line: var(--wop-line);
+  --frame: var(--wop-raised);
+  --pixel: var(--wop-font-display);
+  --ui-scale: 1;
+  font: 500 15px/1.5 var(--wop-font-ui);
+  color: var(--wop-text);
+  background: var(--wop-ink);
+  color-scheme: dark;
+  font-synthesis: none;
+}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  border-radius: 0;
+}
+button,
+a,
+input,
+select,
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--wop-cyan);
+  outline-offset: 3px;
+}
+input:not([type="range"]):not([type="checkbox"]),
+select {
+  color: var(--wop-text);
+  background: var(--wop-deep);
+  border: 2px solid var(--wop-line);
+  padding: 10px 14px;
+}
+input::placeholder {
+  color: var(--wop-text-off);
+}
+input[type="range"],
+input[type="checkbox"] {
+  accent-color: var(--wop-yellow);
+}
+input[type="range"] {
+  cursor: pointer;
+}
+.primary,
+.secondary,
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 44px;
+  border: var(--wop-border);
+  border-radius: 0;
+  padding: 12px 20px;
+  color: var(--wop-text);
+  font: 700 17px/1.3 var(--wop-font-ui);
+  text-decoration: none;
+  background: var(--wop-panel);
+  box-shadow: var(--wop-raised);
+}
+.primary {
+  background: var(--wop-red);
+  box-shadow: var(--wop-primary);
+}
+.icon-button {
+  width: 48px;
+  height: 48px;
+  padding: 8px;
+  flex-shrink: 0;
+}
+.primary:not(:disabled):hover,
+.secondary:not(:disabled):hover,
+.icon-button:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+.primary:not(:disabled):active,
+.secondary:not(:disabled):active,
+.icon-button:not(:disabled):active {
+  transform: translateY(4px);
+  box-shadow: inset 0 4px 0 var(--wop-ink);
+}
+.primary:disabled,
+.secondary:disabled,
+.icon-button:disabled {
+  opacity: 1;
+  color: var(--wop-text-off);
+  background: var(--wop-deep);
+  border-color: var(--wop-line);
+  box-shadow: none;
+}
+.eyebrow {
+  font: 400 11px/1.6 var(--wop-font-label);
+  letter-spacing: 1px;
+  color: var(--wop-text-3);
+  text-transform: uppercase;
+}
+.world-mark {
+  width: 44px;
+  height: 44px;
+  image-rendering: pixelated;
+  flex-shrink: 0;
+}
+.wop-steps {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font: 400 11px/1.5 var(--wop-font-label);
+}
+.wop-steps span {
+  padding: 8px 12px;
+  background: var(--wop-deep);
+  border: 2px solid var(--wop-line);
+  color: var(--wop-text-off);
+}
+.wop-steps [aria-current="step"] {
+  color: var(--wop-ink);
+  background: var(--wop-yellow);
+  border-color: var(--wop-ink);
+  box-shadow: inset 0 2px var(--wop-yellow-l);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

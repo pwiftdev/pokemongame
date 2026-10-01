@@ -1,4 +1,5 @@
 import {
+  type AbstractMesh,
   Matrix,
   Ray,
   Vector3,
@@ -107,6 +108,11 @@ export function createCameraCollision(scene: Scene, camera: ArcRotateCamera) {
     lastAppliedRadius = camera.radius;
   }
   return {
+    include(meshes: AbstractMesh[]) {
+      for (const mesh of meshes)
+        if (mesh.metadata?.cameraObstacle === true) geometry.add(mesh);
+      lastCheck = -Infinity;
+    },
     reset,
     update,
     metrics: () => ({

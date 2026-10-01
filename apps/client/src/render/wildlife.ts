@@ -4,7 +4,11 @@ import { terrainHeight, walkable } from "../../../../packages/shared/rules";
 import { loadModelLibrary, modelUrls } from "./models";
 export async function loadWildlife(scene: Scene) {
   const names = ["Deer", "Stag", "Fox", "Wolf", "Horse", "Alpaca"];
-  const library = await loadModelLibrary(scene, modelUrls("animals", names));
+  const library = await loadModelLibrary(
+    scene,
+    modelUrls("animals", names),
+    () => true,
+  );
   const homes = REGIONS.flatMap((r, ri) =>
     Array.from({ length: 5 }, (_, i) => ({
       id: `wildlife-${ri}-${i}`,
@@ -21,6 +25,11 @@ export async function loadWildlife(scene: Scene) {
       phase: ri * 3 + i,
     })),
   );
+  const dryHomes = homes.filter((h) =>
+    Array.from({ length: 16 }, (_, i) => (i * Math.PI) / 8).every((a) =>
+      walkable(h.x + Math.sin(a) * 4, h.z + Math.cos(a) * 4),
+    ),
+  );
   const actors = new Map<
     string,
     { actor: ReturnType<typeof library.create>; motion: string; phase: number }
@@ -33,9 +42,9 @@ export async function loadWildlife(scene: Scene) {
       lastTime = time;
       if (time - lastFocus > 0.5) {
         lastFocus = time;
-        for (const h of homes) {
+        for (const h of dryHomes) {
           const visible = Math.hypot(focus.x - h.x, focus.z - h.z) < 70;
-          if (visible && !actors.has(h.id)) {
+          if (visible && library.has(h.name) && !actors.has(h.id)) {
             const actor = library.create(
               h.name,
               h.id,
@@ -57,7 +66,7 @@ export async function loadWildlife(scene: Scene) {
           }
         }
       }
-      for (const h of homes) {
+      for (const h of dryHomes) {
         const entry = actors.get(h.id);
         if (!entry) continue;
         const walking = !reduced && Math.sin(time * 0.18 + h.phase) > 0.1;

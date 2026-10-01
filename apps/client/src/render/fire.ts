@@ -30,13 +30,13 @@ gl_FragColor=vec4(color*1.5,alpha*.9*opacity);}`,
 
 export function createTorchFire(scene: Scene, positions: number[][]) {
   const material = createFlameMaterial(scene);
-  const flames = positions.map(([x, z], index) => {
+  const flames = positions.map(([x, z, height = 2.68], index) => {
     const mesh = MeshBuilder.CreatePlane(
       `torch flame ${index}`,
       { width: 0.65, height: 0.95 },
       scene,
     );
-    mesh.position.set(x, terrainHeight(x, z) + 2.68, z);
+    mesh.position.set(x, terrainHeight(x, z) + height, z);
     mesh.billboardMode = Mesh.BILLBOARDMODE_Y;
     mesh.material = material;
     mesh.isPickable = false;

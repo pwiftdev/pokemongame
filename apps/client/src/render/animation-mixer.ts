@@ -5,8 +5,15 @@ export function createAnimationMixer(scene: Scene, groups: AnimationGroup[]) {
     AnimationGroup,
     { weight: number; age: number; duration: number; loop: boolean }
   >();
+  const clips = new Map<string, AnimationGroup>();
+  for (const group of groups) {
+    const name = group.name.split(":").at(-1)!;
+    if (!clips.has(name)) clips.set(name, group);
+  }
   let current: AnimationGroup | undefined;
   const observer = scene.onBeforeAnimationsObservable.add(() => {
+    const steady = current && layers.get(current);
+    if (layers.size === 1 && steady?.loop && steady.weight === 1) return;
     const dt = Math.min(0.05, scene.getEngine().getDeltaTime() / 1000);
     for (const [group, layer] of layers) {
       layer.age += dt;
@@ -21,16 +28,14 @@ export function createAnimationMixer(scene: Scene, groups: AnimationGroup[]) {
         layers.delete(group);
       }
     }
-    const total = [...layers.values()].reduce(
-      (sum, layer) => sum + layer.weight,
-      0,
-    );
+    let total = 0;
+    for (const layer of layers.values()) total += layer.weight;
     for (const [group, layer] of layers)
       group.setWeightForAllAnimatables(layer.weight / Math.max(0.001, total));
   });
   return {
     play(clip: string, loop = true, duration?: number, restart = false) {
-      const group = groups.find((g) => g.name.endsWith(`:${clip}`));
+      const group = clips.get(clip);
       if (!group) return 0;
       const fps = group.targetedAnimations[0]?.animation.framePerSecond ?? 30;
       const seconds = Math.max(0.05, (group.to - group.from) / fps);

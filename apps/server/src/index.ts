@@ -1,7 +1,8 @@
 import express from "express";
 import { BRAND } from "../../../packages/shared/data.js";
 import { allowedOrigin } from "./config.js";
-import { configureHosting } from "./hosting.js";
+import { configureProxy } from "./hosting.js";
+import { protectHttp, httpError } from "./http-boundary.js";
 import { createServer } from "node:http";
 import path from "node:path";
 import { Server } from "@colyseus/core";
@@ -22,26 +23,7 @@ import { RateLimit } from "./commands.js";
 await migrate();
 const app = express();
 app.disable("x-powered-by");
-configureHosting(app);
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (!allowedOrigin(origin)) {
-    res.status(403).json({ message: "Origin is not allowed." });
-    return;
-  }
-  if (origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
-  }
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  if (req.method === "OPTIONS") {
-    res.sendStatus(204);
-    return;
-  }
-  next();
-});
+configureProxy(app);
 app.use(express.json({ limit: "8kb" }));
 const limiter = new RateLimit(90, 60000);
 app.use("/api", (req, res, next) => {
@@ -118,31 +100,18 @@ app.use(
     },
   }),
 );
-app.get("*", (_req, res) =>
-  res.sendFile(path.resolve("dist/client/index.html")),
-);
-app.use(
-  (
-    error: unknown,
-    _req: express.Request,
-    res: express.Response,
-    _next: express.NextFunction,
-  ) => {
-    const message =
-      error instanceof z.ZodError
-        ? "Invalid request."
-        : error instanceof Error
-          ? error.message
-          : "Request failed.";
-    const safe = /session|Session|Origin|Invalid|nickname/.test(message);
-    if (!safe) console.error("HTTP request failed", error);
-    res.status(safe ? 400 : 500).json({
-      message: safe
-        ? message
-        : "Service temporarily unavailable. Your progress has been preserved.",
-    });
-  },
-);
+app.get("*", (req, res) => {
+  if (
+    /^\/(?:api|assets)(?:\/|$)/.test(req.path) ||
+    path.extname(req.path) ||
+    !req.accepts("html")
+  ) {
+    res.status(404).json({ message: "Not found." });
+    return;
+  }
+  res.sendFile(path.resolve("dist/client/index.html"));
+});
+app.use(httpError);
 const http = createServer(app);
 const server = new Server({
   gracefullyShutdown: false,
@@ -158,7 +127,7 @@ const server = new Server({
 });
 server.define("island", IslandRoom);
 const port = Number(process.env.PORT ?? 2567);
-await server.listen(port, "0.0.0.0");
+await server.listen(port, "0.0.0.0", undefined, () => protectHttp(http));
 console.log(`${BRAND.title} server listening at http://localhost:${port}`);
 let closing = false;
 async function shutdown() {

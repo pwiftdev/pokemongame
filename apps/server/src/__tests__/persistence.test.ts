@@ -42,7 +42,73 @@ const sum = async (id: string) =>
     ).rows[0].total,
   );
 
+async function databaseFailure(
+  match: (sql: string) => boolean,
+  run: () => Promise<void>,
+) {
+  const client = await db.pool.connect();
+  const original = client.query.bind(client);
+  let armed = true;
+  Object.defineProperty(client, "query", {
+    configurable: true,
+    writable: true,
+    value: (...args: unknown[]) => {
+      const result = Reflect.apply(original, client, args);
+      if (armed && typeof args[0] === "string" && match(args[0])) {
+        armed = false;
+        return Promise.resolve(result).then(() => {
+          throw new Error("injected database failure");
+        });
+      }
+      return result;
+    },
+  });
+  const connection = vi
+    .spyOn(db.pool, "connect")
+    .mockResolvedValueOnce(client as never);
+  try {
+    await run();
+  } finally {
+    connection.mockRestore();
+    client.query = original as typeof client.query;
+  }
+}
+
 describe("durable economy and ownership", () => {
+  it("avoids redundant full profiles for transient actions but still saves and publishes changed health", async () => {
+    const { IslandRoom } = await import("../room.js");
+    const profile = await player();
+    const send = vi.fn();
+    const p = {
+      profile,
+      client: { send },
+      online: true,
+      hpDirty: false,
+    } as unknown as import("../room.js").Player;
+    const room = new IslandRoom();
+    const runtime = room as unknown as {
+      update: (
+        p: import("../room.js").Player,
+        id: string,
+        action: () => void,
+        publish: boolean,
+      ) => Promise<boolean>;
+    };
+    try {
+      await runtime.update(p, randomUUID(), () => {}, false);
+      expect(send).not.toHaveBeenCalled();
+      p.profile.heroHp = 0;
+      p.hpDirty = true;
+      await runtime.update(p, randomUUID(), () => {}, false);
+      expect(send).toHaveBeenCalledWith(
+        "profile",
+        expect.objectContaining({ heroHp: 0 }),
+      );
+      expect((await db.getProfile(profile.id)).heroHp).toBe(0);
+    } finally {
+      await room.onDispose();
+    }
+  });
   it("rejects inherited object keys as item identifiers without mutation", async () => {
     const p = await player();
     for (const item of ["__proto__", "constructor", "toString"]) {
@@ -122,45 +188,22 @@ describe("durable economy and ownership", () => {
   it("recovers an ambiguous commit and tolerates a post-ack local failure", async () => {
     const p = await player(),
       request = randomUUID();
-    const client = await db.pool.connect();
-    const original = client.query.bind(client) as (
-      text: string,
-      values?: unknown[],
-    ) => Promise<pg.QueryResult>;
-    let loseAcknowledgement = true;
-    Object.defineProperty(client, "query", {
-      configurable: true,
-      writable: true,
-      value: (...args: unknown[]) => {
-        const result = Reflect.apply(original, client, args);
-        if (args[0] === "COMMIT" && loseAcknowledgement) {
-          loseAcknowledgement = false;
-          return Promise.resolve(result).then(() => {
-            throw new Error("connection lost after durable commit");
-          });
-        }
-        return result;
+    await databaseFailure(
+      (sql) => sql === "COMMIT",
+      async () => {
+        const result = await db.mutate(p.id, request, (profile, tx) =>
+          purchase(profile, tx, "capsule", 2, request),
+        );
+        expect(result.applied).toBe(true);
+        expect(result.profile.balance).toBe(150);
+        const retry = await db.mutate(p.id, request, () => {
+          throw new Error("local replay must not apply");
+        });
+        expect(retry.applied).toBe(false);
+        expect(retry.profile.inventory.capsule).toBe(10);
+        expect(await sum(p.id)).toBe(150);
       },
-    });
-    const connection = vi
-      .spyOn(db.pool, "connect")
-      .mockResolvedValueOnce(client as never);
-    try {
-      const result = await db.mutate(p.id, request, (profile, tx) =>
-        purchase(profile, tx, "capsule", 2, request),
-      );
-      expect(result.applied).toBe(true);
-      expect(result.profile.balance).toBe(150);
-      const retry = await db.mutate(p.id, request, () => {
-        throw new Error("local replay must not apply");
-      });
-      expect(retry.applied).toBe(false);
-      expect(retry.profile.inventory.capsule).toBe(10);
-      expect(await sum(p.id)).toBe(150);
-    } finally {
-      connection.mockRestore();
-      client.query = original as typeof client.query;
-    }
+    );
   });
   it("rejects ledger edits and reconciles cached balances", async () => {
     const p = await player();
@@ -197,6 +240,8 @@ describe("durable economy and ownership", () => {
       p.creatures.push(starter);
       p.team = [starter.id];
       p.active = starter.id;
+      p.claimed.push("story-catch");
+      p.quests["accepted:research-meadow"] = 1;
     });
     const client = {
       send: () => {
@@ -244,13 +289,18 @@ describe("durable economy and ownership", () => {
       expect(wild.hp).toBe(0);
       expect(wild.state).toBe("defeat");
       expect(p.profile.creatures).toHaveLength(2);
+      expect(p.profile.quests["progress:research-meadow"]).toBe(1);
       expect(logging).toHaveBeenCalled();
       wild.hp = 10;
       wild.state = "idle";
       await room.tame(p, wild.id, "capsule", randomUUID());
       expect(wild.hp).toBe(0);
       expect(p.profile.creatures).toHaveLength(2);
+      expect(p.profile.quests["progress:research-meadow"]).toBe(1);
       expect(p.profile.inventory.capsule).toBe(7);
+      const durable = await db.getProfile(profile.id);
+      expect(durable.quests["progress:research-meadow"]).toBe(1);
+      expect(durable.quests["objective:research-meadow:bulbasaur"]).toBe(1);
     } finally {
       rng.mockRestore();
       logging.mockRestore();
@@ -451,6 +501,60 @@ describe("durable economy and ownership", () => {
     expect(saved.balance).toBe(580);
     expect(saved.quests.bosses).toBe(1);
     expect(await sum(p.id)).toBe(saved.balance);
+  });
+  it("returns both committed profiles after an ambiguous match acknowledgement and replays the durable winner", async () => {
+    const a = await player(),
+      b = await player(),
+      id = randomUUID();
+    await databaseFailure(
+      (sql) => sql === "COMMIT",
+      async () => {
+        const result = await db.recordMatch(id, a.id, b.id, a.id, "defeat");
+        expect(result.winner).toBe(a.id);
+        expect(result.profiles.find((p) => p.id === a.id)?.balance).toBe(210);
+        expect(result.profiles.find((p) => p.id === b.id)?.losses).toBe(1);
+      },
+    );
+    const replay = await db.recordMatch(id, a.id, b.id, b.id, "timeout");
+    expect(replay.winner).toBe(a.id);
+    expect((await db.getProfile(a.id)).wins).toBe(1);
+    expect(await sum(a.id)).toBe(210);
+  });
+  it("rolls back both participants at a match crash boundary and succeeds on retry", async () => {
+    const a = await player(),
+      b = await player(),
+      id = randomUUID();
+    await databaseFailure(
+      (sql) => sql.startsWith("UPDATE players"),
+      async () => {
+        await expect(
+          db.recordMatch(id, a.id, b.id, a.id, "defeat"),
+        ).rejects.toThrow("injected database failure");
+      },
+    );
+    expect(await db.history(a.id)).toHaveLength(0);
+    expect((await db.getProfile(a.id)).wins).toBe(0);
+    expect(await sum(a.id)).toBe(180);
+    await db.recordMatch(id, a.id, b.id, a.id, "defeat");
+    expect((await db.getProfile(a.id)).wins).toBe(1);
+    const board = await db.leaderboard();
+    expect(
+      board.some((row) => row.nickname === a.nickname && row.wins === 1),
+    ).toBe(true);
+  });
+  it("includes drawn-match participants but excludes unplayed profiles from rankings", async () => {
+    const a = await player(),
+      b = await player(),
+      unplayed = await player();
+    await db.recordMatch(randomUUID(), a.id, b.id, null, "timeout");
+    const board = await db.leaderboard();
+    for (const p of [a, b])
+      expect(board).toContainEqual({
+        nickname: p.nickname,
+        wins: 0,
+        losses: 0,
+      });
+    expect(board.some((row) => row.nickname === unplayed.nickname)).toBe(false);
   });
   it("records one result, prevents repeated-opponent reward farming and does not pay surrender", async () => {
     const a = await player(),

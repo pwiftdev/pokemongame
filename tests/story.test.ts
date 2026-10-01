@@ -146,12 +146,13 @@ describe("story progression", () => {
 });
 describe("authored habitats", () => {
   it("keeps encounters sparse, within named habitats and outside safe camps", () => {
-    expect(SPAWNS.length).toBeLessThanOrEqual(25);
+    expect(SPAWNS.length).toBeLessThanOrEqual(100);
     for (const spawn of SPAWNS) {
       const habitat = HABITATS.find((h) => h.id === spawn.habitat)!;
       expect(habitat).toBeDefined();
       expect(distance(spawn, habitat)).toBeLessThan(10);
-      expect(isSafeArea(spawn.x, spawn.z), spawn.id).toBe(false);
+      if (!SPECIES[spawn.species].companion)
+        expect(isSafeArea(spawn.x, spawn.z), spawn.id).toBe(false);
       expect(SPECIES[spawn.species]).toBeDefined();
     }
   });

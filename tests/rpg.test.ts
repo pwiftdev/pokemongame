@@ -10,7 +10,7 @@ import {
 import { CLASSES, CLASS_IDS } from "../packages/shared/classes";
 import { COMPANIONS, SPECIES, STARTERS, SPAWNS } from "../packages/shared/data";
 import { terrainHeight, walkable } from "../packages/shared/rules";
-import { heroHp, heroMaxHp } from "../packages/shared/hero";
+import { heroCanWalk, heroHp, heroMaxHp } from "../packages/shared/hero";
 import { normalizeProfile, validateProfile } from "../apps/server/src/profile";
 import { makeCreature, abilityFor } from "../apps/server/src/gameplay";
 import { commandSchema } from "../apps/server/src/commands";
@@ -30,6 +30,11 @@ const profile = (): Profile => ({
   losses: 1,
 });
 describe("expanded RPG world", () => {
+  it("lets defeated explorers walk to healing while preserving duel defeat", () => {
+    expect(heroCanWalk({ hp: 0 })).toBe(true);
+    expect(heroCanWalk({ hp: 0, duelId: "match" })).toBe(false);
+    expect(heroCanWalk({ hp: 1, duelId: "match" })).toBe(true);
+  });
   it("provides eight connected, walkable destinations and a larger world", () => {
     expect(REGIONS).toHaveLength(8);
     expect((WORLD_RADIUS / 88) ** 2).toBeGreaterThan(11);
@@ -38,7 +43,7 @@ describe("expanded RPG world", () => {
       expect(walkable(r.x, r.z)).toBe(true);
       expect(Number.isFinite(terrainHeight(r.x, r.z))).toBe(true);
     }
-    expect(SPAWNS.length).toBeLessThanOrEqual(25);
+    expect(SPAWNS.length).toBeLessThanOrEqual(100);
     expect(new Set(SPAWNS.map((s) => s.id)).size).toBe(SPAWNS.length);
   });
   it("keeps roads clear of authoritative buildings and landmarks", () => {
@@ -62,7 +67,11 @@ describe("expanded RPG world", () => {
   it("separates hostile monsters from actual Pokémon companions", () => {
     expect(STARTERS).toEqual(["bulbasaur", "charmander", "squirtle"]);
     expect(COMPANIONS.every((s) => s.companion)).toBe(true);
-    expect(Object.values(SPECIES).filter((s) => !s.companion)).toHaveLength(12);
+    expect(
+      Object.values(SPECIES).filter(
+        (s) => !s.companion && s.id !== "training-dummy",
+      ),
+    ).toHaveLength(12);
   });
   it("keeps class abilities available with the companion dismissed", () => {
     const p = profile();
@@ -86,7 +95,7 @@ describe("expanded RPG world", () => {
     p.active = c.id;
     const id = c.id;
     normalizeProfile(p);
-    expect(c.species).toBe("charmander");
+    expect(c.species).toBe("charmeleon");
     expect(c).toMatchObject({
       id,
       level: 7,

@@ -39,15 +39,17 @@ export function createEffectMaterials(scene: Scene) {
     return value;
   }
   return {
-    get(color: string, shape?: "glow" | "ring") {
-      const key = `${color}:${shape ?? "solid"}`;
+    get(color: string, shape?: "glow" | "ring", lit = false) {
+      const key = `${color}:${shape ?? "solid"}:${lit}`;
       let material = materials.get(key);
       if (!material) {
         material = new StandardMaterial(`effect:${key}`, scene);
         material.diffuseColor = Color3.FromHexString(color);
-        material.emissiveColor = material.diffuseColor.scale(shape ? 1.5 : 1);
+        material.emissiveColor = material.diffuseColor.scale(
+          lit ? 0.08 : shape ? 1.5 : 1,
+        );
         material.specularColor = Color3.Black();
-        material.disableLighting = true;
+        material.disableLighting = !lit;
         material.backFaceCulling = false;
         if (shape) {
           material.diffuseTexture = texture(shape);

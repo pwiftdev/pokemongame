@@ -42,10 +42,19 @@ try {
   checks.push("Companion attacks independently without player ability input");
   p.send({ kind: "pet", mode: "passive" });
   await until(() => !p.self?.petTarget);
-  const count = p.events.filter((e) => e.actor === "companion").length;
+  const count = p.events.filter(
+    (e) => e.actor === "companion" && ["pet-cast", "attack"].includes(e.type),
+  ).length;
   await delay(2700);
-  assert.equal(p.events.filter((e) => e.actor === "companion").length, count);
-  checks.push("Follow cancels autonomous attacks");
+  assert.equal(
+    p.events.filter(
+      (e) => e.actor === "companion" && ["pet-cast", "attack"].includes(e.type),
+    ).length,
+    count,
+  );
+  checks.push(
+    "Follow cancels new casts while already released projectiles finish",
+  );
   await p.go(0, -17);
   await p.go(0, -32);
   await delay(8500);

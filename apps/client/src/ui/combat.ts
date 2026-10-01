@@ -1,3 +1,7 @@
+import {
+  isTraining,
+  TRAINING_TARGETS,
+} from "../../../../packages/shared/training";
 import { isSafeArea } from "../../../../packages/shared/regions";
 import type { Ability } from "../../../../packages/shared/data";
 import { distance, lineOfSight } from "../../../../packages/shared/rules";
@@ -31,7 +35,9 @@ export function abilityAvailability(
     return self.hp >= self.maxHp ? "Already at full health" : "Ready";
   if (personal) return "Ready";
   if (ability.aoeSelf)
-    return !duel && isSafeArea(self.x, self.z)
+    return !duel &&
+      isSafeArea(self.x, self.z) &&
+      !TRAINING_TARGETS.some((t) => distance(self, t) <= (ability.aoe ?? 0))
       ? "Leave the safe haven to battle"
       : "Ready";
   if (!target || target.hp <= 0) return "Choose a target";
@@ -43,10 +49,10 @@ export function abilityAvailability(
   )
     return "Choose your duel opponent";
   if (!duel && !("species" in target))
-    return "Challenge this trainer at the arena";
+    return "Challenge this trainer to a duel";
   if (ability.effect === "taunt" && !("species" in target))
     return "Only creatures can be taunted";
-  if (!duel && isSafeArea(self.x, self.z))
+  if (!duel && isSafeArea(self.x, self.z) && !isTraining(target))
     return "Leave the safe haven to battle";
   if (
     ability.execute &&

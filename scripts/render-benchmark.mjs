@@ -5,22 +5,22 @@ const browser = await chromium.launch({
   channel: "chromium",
   args: process.platform === "darwin" ? ["--use-angle=metal"] : [],
 });
-const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 const start = Date.now();
-await page.goto("http://127.0.0.1:2567");
+await page.goto(
+  `${process.env.RENDER_BASE_URL ?? "http://127.0.0.1:2567"}/pokemon-benchmark.html`,
+);
+await page.waitForFunction(() => window.__pokemonBenchmark?.ready, undefined, {
+  timeout: 60000,
+});
 await page.waitForFunction(
-  () =>
-    document.querySelector("#start") &&
-    !document.querySelector("#start").disabled,
+  () => window.__islandMetrics?.loadedPokemon === 30,
+  undefined,
+  { timeout: 60000 },
 );
 const loadMs = Date.now() - start;
-await page.locator("#nickname").fill(`Bench${Date.now().toString(36)}`);
-await page.locator("#start").click();
-await page.locator('[data-action="class-confirm"]').click();
-await page.locator('[data-action="starter-confirm"]').click();
-await page.locator("#hud").waitFor({ state: "visible" });
 const renderer = await page.evaluate(() => {
   const gl = document.querySelector("canvas").getContext("webgl2");
   const info = gl?.getExtension("WEBGL_debug_renderer_info");
@@ -38,14 +38,32 @@ const summarize = (m) => {
     mean: a.reduce((x, y) => x + y, 0) / a.length,
   };
 };
-await page.waitForTimeout(30000);
-const high = summarize(await page.evaluate(() => window.__islandMetrics));
+const measure = async () => {
+  await page.waitForTimeout(5000);
+  const frameMs = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const samples = [];
+        let previous = performance.now();
+        const started = previous;
+        const tick = (now) => {
+          samples.push(now - previous);
+          previous = now;
+          if (now - started >= 30000) resolve(samples);
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+  return summarize({
+    ...(await page.evaluate(() => window.__islandMetrics)),
+    frameMs,
+  });
+};
+const high = await measure();
 await page.screenshot({ path: "evidence/performance-high.png" });
-await page.locator('#hud [data-action="panel:settings"]').click();
-await page.locator('[data-setting="quality"]').selectOption("low");
-await page.keyboard.press("Escape");
-await page.waitForTimeout(30000);
-const low = summarize(await page.evaluate(() => window.__islandMetrics));
+await page.evaluate(() => window.__pokemonBenchmark.setQuality("low"));
+const low = await measure();
 await page.screenshot({ path: "evidence/performance-low.png" });
 const cdp = await page.context().newCDPSession(page);
 await cdp.send("Performance.enable");
@@ -72,7 +90,7 @@ await writeFile(
         cpu: os.cpus()[0].model,
         ramGB: os.totalmem() / 2 ** 30,
       },
-      resolution: [1920, 1080],
+      resolution: [1440, 900],
       loadMs,
       high,
       low,
@@ -80,7 +98,7 @@ await writeFile(
       transfers,
       totalTransferBytes: transfers.reduce((n, r) => n + r.bytes, 0),
       errors,
-      note: "Actual local Chromium Metal request; renderer string records whether GPU or fallback was used. One rendered browser;22wildcreatures, not16renderedplayers.",
+      note: "Actual Chromium renderer on this Mac; 30 animated Pokémon in a deterministic snapshot using the production island, camera, lighting, model and effect systems. No network clients in this GPU fixture.",
     },
     null,
     2,
@@ -88,3 +106,11 @@ await writeFile(
 );
 console.log(JSON.stringify({ renderer, loadMs, high, low, errors }, null, 2));
 await browser.close();
+if (
+  errors.length ||
+  high.visiblePokemon < 30 ||
+  low.visiblePokemon < 30 ||
+  high.loadedPokemon !== 30 ||
+  low.loadedPokemon !== 30
+)
+  process.exitCode = 1;

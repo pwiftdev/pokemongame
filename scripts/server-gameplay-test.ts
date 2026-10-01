@@ -116,7 +116,7 @@ try {
     "All three Pokémon species are actually captured through server commands",
     async () => {
       for (const species of Object.values(SPECIES)
-        .filter((s) => s.companion)
+        .filter((s) => s.starter)
         .map((s) => s.id)) {
         const spawn = SPAWNS.find(
           (s) => s.species === species && !s.elite && !s.boss,
@@ -147,7 +147,11 @@ try {
           if (attempts === 34) throw new Error(`Could not tame ${species}`);
         }
       }
-      assert.equal(new Set(a.profile.creatures.map((c) => c.species)).size, 3);
+      assert(
+        ["wartortle", "bulbasaur", "charmander", "squirtle"].every((species) =>
+          a.profile.creatures.some((c) => c.species === species),
+        ),
+      );
       assert.equal(a.profile.team.length, 3);
       assert(a.profile.creatures.length > a.profile.team.length);
     },
@@ -254,7 +258,12 @@ try {
         a.send({ kind: "claim", quest: quest.id });
         await until(() => a.profile.claimed.includes(quest.id));
       }
-      assert(a.profile.claimed.includes("coast-path"));
+      assert((a.profile.quests.purchases ?? 0) >= 1);
+      assert((a.profile.quests.elites ?? 0) >= 1);
+      assert(
+        !QUESTS.some((q) => q.id === "coast-path"),
+        "legacy coast-path was replaced by the expedition story; story completion is covered by test:story",
+      );
     },
   );
   await check(

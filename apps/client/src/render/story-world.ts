@@ -1,3 +1,5 @@
+import { npcAppearance, type NpcRole } from "./npc-appearance";
+import { PLACES } from "../../../../packages/shared/data";
 import { createTorchFire } from "./fire";
 import {
   Color3,
@@ -28,19 +30,48 @@ export function createStoryWorld(
   const observer = scene.onBeforeRenderObservable.add(() =>
     fire.update(performance.now() / 1000),
   );
-  const npcs = STORY_PLACES.filter((p) => p.kind === "quest").map((place) => {
+  const citizens = [
+    ...STORY_PLACES.filter((p) => p.kind === "quest").map((p) => ({
+      ...p,
+      role: p.role as NpcRole,
+    })),
+    ...(
+      [
+        ["heal", "healer", "Lina · Springhouse healer", -1.8, 0],
+        ["shop", "merchant", "Mira · Field supplies", 1.8, 0],
+        ["quest", "captain", "Captain Iona · Expeditions", 2.3, -1.6],
+        ["stable", "keeper", "Borin · Companion keeper", 0, -2],
+        ["arena", "marshal", "Marshal Vale · Arena", 0, -8.5],
+      ] as const
+    ).map(([id, role, name, dx, dz]) => {
+      const place = PLACES.find((p) => p.id === id)!;
+      return { id, role, name, x: place.x + dx, z: place.z + dz };
+    }),
+  ];
+  const npcs = citizens.map((place) => {
+    const preset = npcAppearance(place.role);
     const actor = trainers.create(
-      `story:${place.id}`,
+      `npc:${place.id}`,
       false,
-      place.role === "ranger" ? "rogue" : "mage",
+      preset.classId,
+      preset.appearance,
+      preset.armed,
     );
     actor.root.position.set(place.x, terrainHeight(place.x, place.z), place.z);
     actor.root.rotation.y = Math.PI;
     for (const mesh of actor.meshes) {
       mesh.isPickable = false;
-      mesh.metadata = { castShadow: true };
+      mesh.metadata = { ...mesh.metadata, castShadow: true, npc: place.id };
     }
-    return actor;
+    const [name, role] = place.name.split(" · ");
+    const label = createWorldLabel(scene, name);
+    label.update(name, role);
+    label.mesh.position.set(
+      place.x,
+      terrainHeight(place.x, place.z) + actor.height + 0.35,
+      place.z,
+    );
+    return { actor, label };
   });
   const labels = STORY_PLACES.filter((p) => p.kind === "landmark").map(
     (place) => {
@@ -92,7 +123,10 @@ export function createStoryWorld(
     dispose() {
       scene.onBeforeRenderObservable.remove(observer);
       fire.dispose();
-      for (const npc of npcs) npc.dispose();
+      for (const npc of npcs) {
+        npc.actor.dispose();
+        npc.label.dispose();
+      }
       for (const name of labels) name.dispose();
       label.dispose();
       marker.dispose();

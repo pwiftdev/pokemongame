@@ -6,8 +6,8 @@ await writeFile(
   file,
   `<html><body style="margin:0"><canvas style="width:256px;height:256px" width="256" height="256"></canvas><script type="module">
 import {Engine,Scene,Color4,Vector3,ArcRotateCamera,HemisphericLight,DirectionalLight} from '@babylonjs/core';
-import {loadCreatures,POKEMON_MODELS} from './src/render/creatures';import {loadTrainers} from './src/render/trainer';import {CLASSES} from '../../packages/shared/classes';
-const engine=new Engine(document.querySelector('canvas'),true,{preserveDrawingBuffer:true});const scene=new Scene(engine);scene.clearColor=new Color4(0,0,0,0);const camera=new ArcRotateCamera('camera',-Math.PI/2+.3,1.35,4.6,new Vector3(0,1,0),scene);const fill=new HemisphericLight('fill',new Vector3(0,1,0),scene);fill.intensity=1.4;const sun=new DirectionalLight('sun',new Vector3(-1,-1,1),scene);sun.intensity=1.6;const creatures=await loadCreatures(scene);const heroes=await loadTrainers(scene);let actor;window.showPortrait=async(name)=>{actor?.dispose();const c=Object.entries(CLASSES).find(([id,c])=>c.model===name);actor=c?heroes.create('portrait',true,c[0]):creatures.create(name,'portrait',1.8);actor.root.rotation.y=Math.PI;await scene.whenReadyAsync();scene.render();};engine.runRenderLoop(()=>scene.render());window.portraitNames=[...POKEMON_MODELS,...Object.values(CLASSES).map(c=>c.model)];</script></body></html>`,
+import {modelBounds} from './src/render/models';import {loadCreatures,POKEMON_MODELS} from './src/render/creatures';import {loadTrainers} from './src/render/trainer';import {CLASSES} from '../../packages/shared/classes';
+const engine=new Engine(document.querySelector('canvas'),true,{preserveDrawingBuffer:true});const scene=new Scene(engine);scene.clearColor=new Color4(0,0,0,0);const camera=new ArcRotateCamera('camera',-Math.PI/2+.3,1.35,4.6,new Vector3(0,1,0),scene);const fill=new HemisphericLight('fill',new Vector3(0,1,0),scene);fill.intensity=1.4;const sun=new DirectionalLight('sun',new Vector3(-1,-1,1),scene);sun.intensity=1.6;const creatures=await loadCreatures(scene);const heroes=await loadTrainers(scene);let actor;window.showPortrait=async(name)=>{actor?.dispose();const c=Object.entries(CLASSES).find(([id,c])=>c.model===name);actor=c?heroes.create('portrait',true,c[0]):creatures.create(name,'portrait',1.8);actor.root.rotation.y=Math.PI;if(actor.ready && !await actor.ready)throw new Error('Model failed: '+name);await scene.whenReadyAsync();actor.root.computeWorldMatrix(true);const bounds=modelBounds(actor.root);camera.target=bounds.min.add(bounds.max).scale(.5);const size=bounds.max.subtract(bounds.min);camera.radius=Math.max(size.x,size.y,size.z)*1.9;scene.render();};engine.runRenderLoop(()=>scene.render());window.portraitNames=[...POKEMON_MODELS,...Object.values(CLASSES).map(c=>c.model)];</script></body></html>`,
   { flag: "wx" },
 );
 let browser;
@@ -21,6 +21,7 @@ try {
     deviceScaleFactor: 1,
   });
   page.on("pageerror", (e) => console.error(e));
+  await page.routeWebSocket("**/*", (socket) => socket.close());
   await page.goto("http://127.0.0.1:5173/rpg-portraits.html");
   await page.waitForFunction(
     () => window.portraitNames,

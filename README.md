@@ -1,6 +1,12 @@
-# Pokemon Dollars — The Wildlight Isles
+# World of Pokémon — The Wildlight Isles
 
 A desktop-browser fantasy RPG on Aster Isle: eight regions, four armed character classes, animated wildlife, hostile monsters and Pokémon companions. Babylon.js renders the island; a Colyseus server owns movement, combat, taming, quests, and currency; PostgreSQL stores progress. PD is exclusively in-game currency.
+
+The [Pokémon overhaul](docs/POKEMON_OVERHAUL.md) adds 51 species, 91 moves, real typing, individual stats, companion orders and swapping, living habitats, a Pokédex and capture/evolution sequences. That document records the design, verification and unfinished asset limits.
+
+The [interface redesign](docs/UI_REDESIGN.md) introduces the reference-inspired title screen, grouped combat HUD, shared menu navigation and layouts for smaller windows and larger interface scaling.
+
+The [audio system](docs/AUDIO_SYSTEM.md) adds regional and combat music, spatial nature sounds, surface footsteps, creature voices and gameplay cues. Preview the mixes at `/sound-studio.html`; each sound channel has its own volume control.
 
 ## Local launch
 
@@ -59,7 +65,7 @@ npm start
 
 The Node process serves the production browser bundle and WebSockets on port 2567. Set `PORT`, `DATABASE_URL`, and `ALLOWED_ORIGINS`. If frontend and server use different origins, set `VITE_SERVER_URL` before building. Place a TLS reverse proxy in front of Node. See docs/DEPLOYMENT.md for routing, backups, and hosting limits.
 
-Source is organized into apps/client, apps/server, and packages/shared. See GAME_GUIDE.md for rules, ARCHITECTURE.md for boundaries, and ASSET_MANIFEST.json for asset provenance. No public deployment or blockchain integration is included.
+Source is organized into apps/client, apps/server, and packages/shared. See GAME_GUIDE.md for rules, ARCHITECTURE.md for boundaries, and ASSET_MANIFEST.json for asset provenance. The multiplayer test site is [live on Heroku](https://pokemon-dollars-play-7ffdf663f528.herokuapp.com/). No blockchain integration is included.
 
 The RPG expansion is documented in docs/RPG_EXPANSION_AUDIT.md. Pokémon assets have separate rights from the CC0 scenery and characters; see THIRD_PARTY_NOTICES.md. No paid assets were purchased.
 

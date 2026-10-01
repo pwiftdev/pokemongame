@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   begin,
+  audioMetrics,
   metrics,
   walk,
   approachOrchard,
@@ -18,6 +19,12 @@ test("mage casts visibly, movement interrupts, and Space dashes", async ({
   await walk(page, -23, 0);
   await walk(page, -31, 4);
   await page.keyboard.press("Tab");
+  await expect(page.locator("#target-card")).toBeVisible();
+  expect(
+    await page
+      .locator("#target-card h3")
+      .evaluate((label) => label.scrollWidth <= label.clientWidth),
+  ).toBe(true);
   await page.keyboard.press("3");
   await expect(page.locator("#cast-bar")).toBeVisible();
   await expect(page.locator("#cast-bar")).toContainText("Meteor");
@@ -36,6 +43,15 @@ test("mage casts visibly, movement interrupts, and Space dashes", async ({
     })
     .toBeGreaterThan(3);
   await page.screenshot({ path: "evidence/combat-rework-dash.png" });
+  await expect
+    .poll(async () => (await audioMetrics(page)).played?.fire ?? 0)
+    .toBeGreaterThan(0);
+  await expect
+    .poll(async () => (await audioMetrics(page)).played?.dash ?? 0)
+    .toBeGreaterThan(0);
+  await expect
+    .poll(async () => (await audioMetrics(page)).track)
+    .toBe("combat");
   expect(errors).toEqual([]);
 });
 

@@ -33,7 +33,9 @@ try {
   await begin(page, `Tour${Date.now().toString(36)}`, "spriglet", "new");
   await capture("final-spawn");
   await page.keyboard.press("j");
-  await page.locator('[data-action="claim:first-friend"]').click();
+  await page
+    .locator('.panel-quests [data-action="claim:first-friend"]')
+    .click();
   await page.keyboard.press("Escape");
   await walk(page, 0, -27);
   await walk(page, 10, -27);

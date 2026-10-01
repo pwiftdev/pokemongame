@@ -1,4 +1,6 @@
 import type { Biome, Profile } from "./types";
+import { EXPEDITIONS } from "./expeditions";
+import { FIELD_RESEARCH } from "./field-research";
 
 export interface Quest {
   id: string;
@@ -292,6 +294,8 @@ export const QUESTS: Quest[] = [
       destination: { x, z, name: `${name} waystone` },
     }),
   ),
+  ...FIELD_RESEARCH,
+  ...EXPEDITIONS,
 ];
 export function questAccepted(p: Profile, q: Quest) {
   return !q.giver || p.quests[`accepted:${q.id}`] === 1;
@@ -314,7 +318,8 @@ export function recordQuestEvent(p: Profile, key: string, unique?: string) {
       q.key !== key ||
       !questAccepted(p, q) ||
       !questUnlocked(p, q) ||
-      p.claimed.includes(q.id)
+      p.claimed.includes(q.id) ||
+      questProgress(p, q) >= q.goal
     )
       continue;
     const stamp = `objective:${q.id}:${unique}`;

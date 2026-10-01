@@ -1,3 +1,12 @@
+import { POKEMON } from "../../../packages/shared/pokemon.js";
+import { recordPokemon } from "../../../packages/shared/pokedex.js";
+import {
+  equippedMoves,
+  evolutionOptions,
+  individualValues,
+  NATURES,
+  pokemonStats,
+} from "../../../packages/shared/pokemon-rules.js";
 import {
   questAccepted,
   questUnlocked,
@@ -15,20 +24,71 @@ import {
   SPECIES,
 } from "../../../packages/shared/data.js";
 import { distance, maxHp, xpForLevel } from "../../../packages/shared/rules.js";
-import type { Creature, Profile } from "../../../packages/shared/types.js";
+import type {
+  Biome,
+  Creature,
+  Profile,
+} from "../../../packages/shared/types.js";
 import type { Transaction } from "./db.js";
+
+export async function evolvePokemon(
+  profile: Profile,
+  id: string,
+  branch: string | undefined,
+  location: Biome,
+  tx: Transaction,
+) {
+  const creature = profile.creatures.find((c) => c.id === id);
+  if (!creature) throw new Error("Pokémon not found.");
+  const rule = evolutionOptions(creature, profile.inventory, location).find(
+    (rule) => !branch || rule.species === branch,
+  );
+  if (!rule)
+    throw new Error("Evolution requires the right level, stone or location.");
+  const from = creature.species;
+  await tx.credit(profile, -90, "evolution", `evolve:${creature.id}:${from}`);
+  if (rule.item) consume(profile, rule.item);
+  creature.species = rule.species;
+  creature.evolved = true;
+  creature.maxHp = pokemonStats(
+    creature.species,
+    creature.level,
+    creature.ivs,
+    creature.nature,
+  ).hp;
+  creature.hp = creature.maxHp;
+  creature.moves = equippedMoves(
+    creature.species,
+    creature.level,
+    creature.moves,
+  );
+  recordPokemon(profile, from, true);
+  recordPokemon(profile, creature.species, true);
+  increment(profile, "evolutions");
+  return { from, to: creature.species };
+}
 
 export function makeCreature(species: string, level = 1): Creature {
   const definition = SPECIES[species];
   if (!definition) throw new Error("Unknown creature.");
+  const id = randomUUID();
+  const ivs = individualValues(id);
+  const nature =
+    Object.keys(NATURES)[
+      Math.floor(Math.random() * Object.keys(NATURES).length)
+    ];
+  const health = POKEMON[species]
+    ? pokemonStats(species, level, ivs, nature).hp
+    : maxHp(species, level);
   return {
-    id: randomUUID(),
+    id,
+    ...(POKEMON[species] ? { ivs, nature, dataVersion: 1, shiny: false } : {}),
     species,
     nickname: "",
     level,
     xp: 0,
-    hp: maxHp(species, level),
-    maxHp: maxHp(species, level),
+    hp: health,
+    maxHp: health,
     evolved: false,
     trait: ["Curious", "Brave", "Gentle", "Lively"][
       Math.floor(Math.random() * 4)
@@ -37,6 +97,7 @@ export function makeCreature(species: string, level = 1): Creature {
   };
 }
 export function learnedMoves(species: string, level: number) {
+  if (POKEMON[species]) return equippedMoves(species, level);
   const moves = SPECIES[species].moves;
   return [
     moves[0],
@@ -74,10 +135,14 @@ export function gainExperience(c: Creature, amount: number) {
   while (c.level < 20 && c.xp >= xpForLevel(c.level)) {
     c.xp -= xpForLevel(c.level);
     c.level++;
-    c.moves = learnedMoves(c.species, c.level);
+    c.moves = POKEMON[c.species]
+      ? equippedMoves(c.species, c.level, c.moves)
+      : learnedMoves(c.species, c.level);
     const before = c.maxHp;
-    c.maxHp = maxHp(c.species, c.level, c.evolved);
-    c.hp = Math.min(c.maxHp, c.hp + c.maxHp - before);
+    c.maxHp = POKEMON[c.species]
+      ? pokemonStats(c.species, c.level, c.ivs, c.nature).hp
+      : maxHp(c.species, c.level, c.evolved);
+    if (c.hp > 0) c.hp = Math.min(c.maxHp, c.hp + c.maxHp - before);
   }
   if (c.level === 20) c.xp = Math.min(c.xp, xpForLevel(20));
 }
@@ -139,19 +204,32 @@ export async function claimQuest(
   }
   if (questProgress(p, q) < q.goal)
     throw new Error("Quest objectives are not complete yet.");
-  await tx.credit(p, q.reward, `quest: ${q.name}`, `quest:${id}:0`);
+  const runs = p.quests[`claimed:${id}`] ?? 0;
+  await tx.credit(
+    p,
+    q.reward,
+    `quest: ${q.name}`,
+    `quest:${id}:${q.repeatable ? runs : 0}`,
+  );
   const previousMax = heroMaxHp(p);
   const companion =
     p.creatures.find((c) => c.id === p.active) ?? p.creatures[0];
   if (companion && q.xp) gainExperience(companion, q.xp);
   p.heroHp = Math.min(heroMaxHp(p), heroHp(p) + heroMaxHp(p) - previousMax);
-  p.quests[`claimed:${id}`] = 1;
-  p.claimed.push(id);
+  p.quests[`claimed:${id}`] = runs + 1;
+  if (q.repeatable) {
+    delete p.quests[`accepted:${id}`];
+    delete p.quests[`progress:${id}`];
+    for (const key of Object.keys(p.quests))
+      if (key.startsWith(`objective:${id}:`)) delete p.quests[key];
+  } else p.claimed.push(id);
 }
 export function useItem(p: Profile, itemId: string, inCombat: boolean) {
   const item = itemDefinition(itemId);
   if (item.effect === "tame")
     throw new Error("Select a wild creature to use a capsule.");
+  if (item.effect === "evolution")
+    throw new Error("Use this stone from the Companions panel when evolving.");
   const c = activeCreature(p);
   if (item.effect === "teamHeal" && inCombat)
     throw new Error("Use trail rations outside combat.");

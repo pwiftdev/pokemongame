@@ -1,4 +1,12 @@
+import { geographyWalkable } from "./geography";
 import { regionBiome } from "./regions";
+import { POKEMON } from "./pokemon";
+import {
+  LEGACY_TYPES,
+  typeMultiplier,
+  type PokemonType,
+} from "./pokemon-types";
+import { pokemonStats } from "./pokemon-rules";
 import { ELEMENTS, OBSTACLES, SPECIES, WORLD } from "./data";
 import type { Biome, Creature, Element } from "./types";
 export const clamp = (v: number, min: number, max: number) =>
@@ -10,28 +18,13 @@ export const distance = (
 export function biomeAt(x: number, z: number): Biome {
   return regionBiome(x, z);
 }
-export function terrainHeight(x: number, z: number): number {
-  const inland = clamp((z + 14) / 20, 0, 1);
-  const blend = inland * inland * (3 - 2 * inland);
-  const hills =
-    (0.8 +
-      Math.sin(x * 0.075) * Math.cos(z * 0.07) * 0.9 +
-      Math.sin((x + z) * 0.035) * 0.45) *
-    blend;
-  const rise = Math.max(0, z - 38) * 0.035 + Math.max(0, -z - 90) * 0.035;
-  const outer = clamp((Math.hypot(x, z) - 85) / 45, 0, 1);
-  const ridges = outer * (3 + Math.sin(x * 0.023) * Math.cos(z * 0.026) * 3);
-  const coast = clamp((WORLD.radius - Math.hypot(x, z)) / 10, 0, 1);
-  return (
-    Math.max(0, hills + rise + ridges) * coast -
-    Math.max(0, Math.hypot(x, z) - WORLD.radius)
-  );
-}
+export { landscapeHeight as terrainHeight } from "./geography";
 export function walkable(x: number, z: number, radius = 0.6): boolean {
   return (
     Number.isFinite(x) &&
     Number.isFinite(z) &&
     Math.hypot(x, z) < WORLD.radius - radius &&
+    geographyWalkable(x, z, radius) &&
     OBSTACLES.every((o) => Math.hypot(x - o.x, z - o.z) > o.radius + radius)
   );
 }
@@ -101,7 +94,12 @@ export function lineOfSight(
   }
   return true;
 }
-export function effectiveness(attack: Element, defend: Element): number {
+export function effectiveness(
+  attack: Element,
+  defend: Element,
+  pokemonTypes?: readonly PokemonType[],
+): number {
+  if (pokemonTypes) return typeMultiplier(LEGACY_TYPES[attack], pokemonTypes);
   return ELEMENTS[attack].strong === defend
     ? 1.5
     : ELEMENTS[attack].weak === defend
@@ -109,6 +107,11 @@ export function effectiveness(attack: Element, defend: Element): number {
       : 1;
 }
 export function maxHp(species: string, level: number, evolved = false): number {
+  if (POKEMON[species])
+    return pokemonStats(
+      evolved ? (POKEMON[species].evolutions[0]?.species ?? species) : species,
+      level,
+    ).hp;
   return Math.round(
     (SPECIES[species].baseHp + (level - 1) * 9) * (evolved ? 1.3 : 1),
   );
@@ -140,7 +143,7 @@ export function creatureName(
 ): string {
   return (
     creature.nickname ||
-    (creature.evolved
+    (creature.evolved && !POKEMON[creature.species]
       ? SPECIES[creature.species].evolution?.name
       : undefined) ||
     SPECIES[creature.species].name

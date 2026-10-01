@@ -1,7 +1,7 @@
+import { POKEMON } from "../../../packages/shared/pokemon";
+export const POKEMON_MODELS = Object.values(POKEMON).map((p) => p.name);
 export const SPECIES_MODELS: Record<string, string> = {
-  bulbasaur: "Bulbasaur",
-  charmander: "Charmander",
-  squirtle: "Squirtle",
+  ...Object.fromEntries(Object.values(POKEMON).map((p) => [p.id, p.name])),
   spriglet: "Mushnub",
   cindercub: "Dragon",
   brookfin: "Glub",

@@ -1,8 +1,16 @@
-import { HABITATS } from "../../../../packages/shared/encounters";
 import {
+  FIELD_RESEARCH,
+  regionFieldNote,
+} from "../../../../packages/shared/field-research";
+import { worldConditions } from "../../../../packages/shared/pokemon-habitats";
+import {
+  questAccepted,
+  questProgress,
   currentQuest,
   questDestination,
 } from "../../../../packages/shared/story";
+import type { PlayerView, Profile } from "../../../../packages/shared/types";
+import { HABITATS } from "../../../../packages/shared/encounters";
 import { escape as esc } from "./icons";
 import {
   REGIONS,
@@ -11,26 +19,39 @@ import {
   WORLD_RADIUS,
   regionBiome,
 } from "../../../../packages/shared/regions";
-import type { Profile } from "../../../../packages/shared/types";
 export function mapPoint(x: number, z: number) {
   return {
     x: 50 + (x / (WORLD_RADIUS * 2)) * 92,
     y: 50 - (z / (WORLD_RADIUS * 2)) * 92,
   };
 }
-export function worldMap(profile?: Profile) {
+let cachedTiles = "";
+export function explorerMapPins(players: PlayerView[], selfId: string) {
+  return players
+    .filter((p) => p.id !== selfId)
+    .map((player) => {
+      const point = mapPoint(player.x, player.z);
+      return `<span class="map-explorer" role="img" style="left:${point.x}%;top:${point.y}%" title="${esc(player.nickname)} · ${player.hp <= 0 ? "Needs healing" : "Fellow explorer"}" aria-label="${esc(player.nickname)} location"></span>`;
+    })
+    .join("");
+}
+export function worldMap(profile?: Profile, now = Date.now()) {
   const point = (x: number, z: number) => {
     const p = mapPoint(x, z);
     return `${p.x * 8},${p.y * 6.5}`;
   };
   let tiles = "";
-  for (let x = -300; x < 300; x += 15)
-    for (let z = -300; z < 300; z += 15) {
-      if (Math.hypot(x + 7.5, z + 7.5) > WORLD_RADIUS) continue;
-      const p = mapPoint(x, z + 15),
-        r = REGIONS.find((r) => r.id === regionBiome(x, z))!;
-      tiles += `<rect x="${p.x * 8}" y="${p.y * 6.5}" width="19" height="15.5" fill="${r.color}"/>`;
-    }
+  if (!cachedTiles)
+    for (let x = -300; x < 300; x += 15)
+      for (let z = -300; z < 300; z += 15) {
+        if (Math.hypot(x + 7.5, z + 7.5) > WORLD_RADIUS) continue;
+        const p = mapPoint(x, z + 15),
+          r = REGIONS.find((r) => r.id === regionBiome(x, z))!;
+        tiles += `<rect x="${p.x * 8}" y="${p.y * 6.5}" width="19" height="15.5" fill="${r.color}"/>`;
+      }
+  if (!cachedTiles) cachedTiles = tiles;
+  tiles = cachedTiles;
+  const conditions = worldConditions(now);
   const quest = profile && currentQuest(profile);
   const destination = profile && quest && questDestination(profile, quest);
   const destinationPoint =
@@ -46,12 +67,23 @@ export function worldMap(profile?: Profile) {
     return `<span class="habitat-pin ${h.kind}" style="left:${p.x}%;top:${p.y}%" title="${esc(h.name)} · ${esc(h.description)}">${h.kind === "pokemon" ? "○" : h.kind === "boss" ? "◆" : "×"}</span>`;
   }).join(
     "",
-  )}${destination && destinationPoint ? `<span class="story-map-pin" style="left:${destinationPoint.x}%;top:${destinationPoint.y}%" title="${esc(destination.name)}">◆</span>` : ""}<div id="map-player" class="map-player" aria-label="Your location"></div><div class="map-north">N<span>↑</span></div></div><div class="map-notes story-map-notes"><p>Gold diamond: story objective · Green circles: Pokémon habitats · Red crosses: monster camps.</p><p>Follow the stone roads to new regions. Approach each waystone to attune it. Travel between attuned waystones while nearby and out of combat.</p><div class="habitat-guide">${HABITATS.filter(
+  )}${destination && destinationPoint ? `<span class="story-map-pin" style="left:${destinationPoint.x}%;top:${destinationPoint.y}%" title="${esc(destination.name)}">◆</span>` : ""}<div id="map-explorers"></div><div id="map-player" class="map-player" aria-label="Your location"></div><div class="map-north">N<span>↑</span></div></div><div class="map-notes story-map-notes"><p>${conditions.time === "day" ? "Daylight" : "Nightfall"} · ${conditions.weather === "rain" ? "Rain" : "Clear skies"}. Gold diamond: story objective · Cyan squares: explorers · Green circles: Pokémon habitats · Red crosses: monster camps.</p><p>Follow the stone roads to new regions. Approach each waystone to attune it. Travel between attuned waystones while nearby and out of combat.</p><div class="field-study-summary">${
+    profile
+      ? FIELD_RESEARCH.filter(
+          (q) => questAccepted(profile, q) && !profile.claimed.includes(q.id),
+        )
+          .map(
+            (q) =>
+              `<p>${esc(q.name)} · ${questProgress(profile, q)} / ${q.goal} species</p>`,
+          )
+          .join("")
+      : ""
+  }</div><div class="habitat-guide">${HABITATS.filter(
     (h) => h.kind === "pokemon",
   )
     .map(
       (h) =>
-        `<span><strong>${esc(h.name)}</strong>${esc(h.description)}</span>`,
+        `<span><strong>${esc(h.name)}</strong>${esc(h.description)} ${esc(regionFieldNote(h.biome))}</span>`,
     )
     .join("")}</div></div>`;
 }

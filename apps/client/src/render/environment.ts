@@ -1,8 +1,13 @@
+import { dressArena } from "./arena";
+import {
+  FIRE_SOURCES,
+  TOWN_TORCHES,
+} from "../../../../packages/shared/environment-features";
 import { STORY_PLACES } from "../../../../packages/shared/story";
 import { HABITATS } from "../../../../packages/shared/encounters";
 import { buildRegionalLandmarks } from "./regional-landmarks";
 import { loadWildlife } from "./wildlife";
-import { WORLD_RADIUS, WAYSTONES } from "../../../../packages/shared/regions";
+import { WAYSTONES } from "../../../../packages/shared/regions";
 import { createTorchFire } from "./fire";
 import {
   ArcRotateCamera,
@@ -12,14 +17,21 @@ import {
   type Scene,
 } from "@babylonjs/core";
 import { OBSTACLES, PLACES, SPAWNS } from "../../../../packages/shared/data";
-import { biomeAt, terrainHeight } from "../../../../packages/shared/rules";
+import { terrainHeight } from "../../../../packages/shared/rules";
 import { createAtmosphere } from "./atmosphere";
 import { createWorldLabel } from "./labels";
 import { buildTerrain } from "./terrain";
 import { loadScenery } from "./scenery";
+import { dressBiomes } from "./biome-vegetation";
+import { createInlandWater } from "./inland-water";
+import { createBiomeLife } from "./biome-life";
+import { createWaterfall } from "./waterfall";
 
-export async function buildEnvironment(scene: Scene) {
-  const scenery = await loadScenery(scene);
+export async function buildEnvironment(
+  scene: Scene,
+  onReady?: Parameters<typeof loadScenery>[1],
+) {
+  const scenery = await loadScenery(scene, onReady);
   let wildlife: Awaited<ReturnType<typeof loadWildlife>>;
   try {
     wildlife = await loadWildlife(scene);
@@ -42,6 +54,7 @@ function assembleEnvironment(
   wildlife: Awaited<ReturnType<typeof loadWildlife>>,
 ) {
   const terrain = buildTerrain(scene);
+  const arena = dressArena(scene, scenery);
   buildRegionalLandmarks(scenery);
   const atmosphere = createAtmosphere(scene);
   const place = scenery.place;
@@ -68,23 +81,14 @@ function assembleEnvironment(
     scenery.cottage(o.x, o.z, i, o.radius / 4.5),
   );
   place("Mill", -35, 10, 9, Math.PI / 2);
-  place("Stall_Empty", -10, -29, 3.1, Math.PI);
-  place("FarmCrate_Apple", -10, -28, 0.6, 0, 0.8);
+  place("Stall_Empty", 10, -29, 2.5, Math.PI);
+  place("FarmCrate_Apple", 10, -28, 0.6, 0, 0.8);
   place("BookStand", -1, -22, 1.8, Math.PI);
   place("Banner_1", 1.3, -22, 2.6, Math.PI);
   place("Chest_Wood", -2.1, -22, 0.75);
   place("Prop_Wagon", -15, -39, 2.3, 0.4);
-  const torchPositions = [
-    [-6, -24],
-    [6, -24],
-    [-6, -33],
-    [6, -33],
-    [-19, -11],
-    [23, -3],
-    [31, 4],
-  ];
-  for (const [x, z] of torchPositions) place("Torch_Metal", x, z, 2.5);
-  const fire = createTorchFire(scene, torchPositions);
+  for (const [x, z] of TOWN_TORCHES) place("Torch_Metal", x, z, 2.5);
+  const fire = createTorchFire(scene, FIRE_SOURCES);
   for (const [x, z] of [
     [-7, -30],
     [7, -30],
@@ -155,134 +159,10 @@ function assembleEnvironment(
       p.z,
     );
   }
-  let seed = 821;
-  const rand = () => {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    return seed / 4294967296;
-  };
-  const clear = (x: number, z: number, margin: number) =>
-    Math.hypot(x, z) < WORLD_RADIUS - 10 &&
-    !terrain.nearPath(x, z, margin) &&
-    !OBSTACLES.some((o) => Math.hypot(x - o.x, z - o.z) < o.radius + margin) &&
-    !SPAWNS.some(
-      (s) => Math.hypot(x - s.x, z - s.z) < (s.boss ? 10 : margin),
-    ) &&
-    !PLACES.some((p) => Math.hypot(x - p.x, z - p.z) < margin + 2);
-  const trees = ["CommonTree_1", "CommonTree_3", "CommonTree_5"];
-  for (let i = 0; i < 4200; i++) {
-    const x = (rand() - 0.5) * (WORLD_RADIUS * 2 - 12),
-      z = (rand() - 0.5) * (WORLD_RADIUS * 2 - 12);
-    if (!clear(x, z, 4.5)) continue;
-    const biome = biomeAt(x, z);
-    if (biome === "town" && Math.abs(x) < 25 && z > -49) continue;
-    const name =
-      biome === "tundra"
-        ? "SnowPine"
-        : biome === "highlands"
-          ? "AutumnTree"
-          : biome === "marsh"
-            ? "MoonTree"
-            : biome === "desert"
-              ? "Sandstone"
-              : biome === "ruins"
-                ? `Rock_Medium_${1 + (i % 3)}`
-                : biome === "forest"
-                  ? i % 2
-                    ? "Pine_1"
-                    : "Pine_3"
-                  : trees[i % trees.length];
-    place(
-      name,
-      x,
-      z,
-      biome === "ruins" || biome === "desert" ? 2 + rand() * 5 : 6 + rand() * 7,
-      rand() * Math.PI * 2,
-    );
-  }
-  const plants = [
-    "Bush_Common",
-    "Bush_Common_Flowers",
-    "Fern_1",
-    "Flower_3_Group",
-    "Flower_4_Group",
-    "Grass_Common_Short",
-    "Grass_Wispy_Tall",
-  ];
-  for (let i = 0; i < 2600; i++) {
-    const x = (rand() - 0.5) * (WORLD_RADIUS * 2 - 12),
-      z = (rand() - 0.5) * (WORLD_RADIUS * 2 - 12);
-    if (
-      !clear(x, z, 2.5) ||
-      ["ruins", "desert", "tundra"].includes(biomeAt(x, z))
-    )
-      continue;
-    place(
-      plants[i % plants.length],
-      x,
-      z,
-      0.35 + rand() * 0.5,
-      rand() * Math.PI * 2,
-      undefined,
-      true,
-    );
-  }
-  const grass = [[], [], []] as Array<
-    Array<{ x: number; z: number; height: number; rotation: number }>
-  >;
-  for (let i = 0; i < 95000; i++) {
-    const x = (rand() - 0.5) * (WORLD_RADIUS * 2 - 12),
-      z = (rand() - 0.5) * (WORLD_RADIUS * 2 - 12);
-    if (
-      !clear(x, z, 1.7) ||
-      ["ruins", "desert", "tundra"].includes(biomeAt(x, z))
-    )
-      continue;
-    if (biomeAt(x, z) === "town" && Math.abs(x) < 9 && z > -36) continue;
-    const patch = Math.sin(x * 0.31) * Math.cos(z * 0.23);
-    if (patch < -0.4) continue;
-    const variety = i % 7 < 4 ? 0 : i % 7 < 6 ? 1 : 2;
-    for (let cluster = 0; cluster < (variety === 2 ? 1 : 3); cluster++) {
-      const px = x + (rand() - 0.5) * 1.6,
-        pz = z + (rand() - 0.5) * 1.6;
-      if (cluster && !clear(px, pz, 1.7)) continue;
-      grass[variety].push({
-        x: px,
-        z: pz,
-        height: 0.3 + rand() * 0.38,
-        rotation: rand() * Math.PI * 2,
-      });
-    }
-  }
-  ["Grass_Common_Short", "Grass_Wispy_Tall", "Flower_3_Group"].forEach(
-    (name, i) =>
-      scenery.scatter(
-        name,
-        grass[i].filter((_, n) => i < 2 || n % 15 === 0),
-      ),
-  );
-  for (let i = 0; i < 38; i++) {
-    const a = (i / 38) * Math.PI * 2;
-    place(
-      `Rock_Medium_${1 + (i % 3)}`,
-      Math.sin(a) * (WORLD_RADIUS - 2),
-      Math.cos(a) * (WORLD_RADIUS - 2),
-      2 + rand() * 2,
-      a,
-      -0.8,
-    );
-  }
-  for (let i = 0; i < 9; i++) {
-    const a = i * 0.67;
-    place(
-      "Rock_Medium_3",
-      Math.sin(a) * (WORLD_RADIUS + 60),
-      Math.cos(a) * (WORLD_RADIUS + 80),
-      15 + rand() * 12,
-      a,
-      -4,
-    );
-  }
-
+  dressBiomes(scenery);
+  const inlandWater = createInlandWater(scene);
+  const life = createBiomeLife(scene);
+  const waterfall = createWaterfall(scene);
   for (const stone of WAYSTONES) {
     place("DoorFrame_Round_Brick", stone.x, stone.z + 3.5, 5);
     for (const dx of [-3, 3])
@@ -293,16 +173,6 @@ function assembleEnvironment(
       place("Stall_Empty", stone.x + 9, stone.z - 4, 3.4);
       place("Chest_Wood", stone.x + 8, stone.z - 2, 1);
       place("Bench", stone.x - 8, stone.z - 4, 1.2);
-      for (let i = 0; i < 7; i++)
-        place(
-          stone.biome === "marsh"
-            ? "TwistedTree_1"
-            : "Wall_UnevenBrick_Straight",
-          stone.x + Math.cos(i * 1.7) * 16,
-          stone.z + Math.sin(i * 1.7) * 16,
-          stone.biome === "marsh" ? 12 : 4,
-          i,
-        );
     }
   }
   const glow = new StandardMaterial("tideglass glow", scene);
@@ -328,13 +198,23 @@ function assembleEnvironment(
       fire.update(reduced ? 0 : t);
       terrain.water.update(reduced ? 0 : t);
       atmosphere.update(reduced ? 0 : t);
+      inlandWater.update(reduced ? 0 : t);
+      waterfall.update(reduced ? 0 : t);
+      life.update(t, focus, reduced);
       if (!reduced) {
         crystal.rotation.y = t * 0.3;
       }
     },
-    setQuality: scenery.setQuality,
+    setQuality(low: boolean) {
+      scenery.setQuality(low);
+      life.setQuality(low);
+    },
     dispose() {
+      arena.dispose();
       wildlife.dispose();
+      inlandWater.dispose();
+      waterfall.dispose();
+      life.dispose();
       fire.dispose();
       scenery.dispose();
       atmosphere.dispose();

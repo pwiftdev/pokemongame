@@ -27,11 +27,11 @@ test("movement stops cleanly, sprint blends and jumps land on authored poses", a
   await begin(page, "Motion review", "bulbasaur", "new", "rogue");
   await page.keyboard.down("w");
   await expect
-    .poll(async () => (await feel(page)).heroMotion)
+    .poll(async () => (await feel(page)).heroLegMotion)
     .toBe("Running_A");
   await page.keyboard.down("Shift");
   await expect
-    .poll(async () => (await feel(page)).heroMotion)
+    .poll(async () => (await feel(page)).heroLegMotion)
     .toBe("Running_B");
   await page.keyboard.up("w");
   await page.keyboard.up("Shift");
@@ -46,7 +46,9 @@ test("movement stops cleanly, sprint blends and jumps land on authored poses", a
     .toBeGreaterThan(0.1);
   await page.screenshot({ path: "evidence/feel-jump.png" });
   await expect.poll(async () => (await feel(page)).jumpHeight).toBe(0);
-  await expect.poll(async () => (await feel(page)).heroMotion).toBe("Idle");
+  await expect
+    .poll(async () => (await feel(page)).heroMotion)
+    .toBe("Idle_Armed");
   await page.keyboard.press("c");
   await page.keyboard.down("w");
   await page.waitForTimeout(200);

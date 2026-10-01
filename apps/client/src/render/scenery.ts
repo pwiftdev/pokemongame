@@ -1,5 +1,8 @@
+import { buildingParts } from "./village-buildings";
+import villageModels from "./village-models.json";
 import {
   InstancedMesh,
+  PBRMaterial,
   Matrix,
   Mesh,
   Quaternion,
@@ -12,6 +15,8 @@ import { terrainHeight } from "../../../../packages/shared/rules";
 import { loadModelLibrary, modelUrls } from "./models";
 import { createFoliageCulling } from "./foliage-culling";
 import { FoliageWind } from "./foliage-wind";
+import { StoneWeathering } from "./stone-weathering";
+import worldModels from "./world-models.json";
 
 const NATURE = [
   "SnowPine",
@@ -37,13 +42,13 @@ const NATURE = [
   "Rock_Medium_3",
 ];
 const VILLAGE = [
+  ...villageModels,
   "Wall_Plaster_Window_Wide_Flat",
   "Wall_Plaster_Door_Round",
   "Door_1_Round",
   "DoorFrame_Round_WoodDark",
   "Window_Wide_Flat1",
   "WindowShutters_Wide_Flat_Open",
-  "Roof_RoundTiles_6x6",
   "Roof_Front_Brick6",
   "Prop_Chimney",
   "Prop_WoodenFence_Single",
@@ -69,13 +74,26 @@ const PROPS = [
   "Torch_Metal",
 ];
 
-export async function loadScenery(scene: Scene) {
-  const library = await loadModelLibrary(scene, {
-    Mill: "/assets/landmarks/Mill.glb",
-    ...modelUrls("nature", NATURE),
-    ...modelUrls("village", VILLAGE),
-    ...modelUrls("props", PROPS),
-  });
+export async function loadScenery(
+  scene: Scene,
+  onReady?: (
+    meshes: ReturnType<
+      Awaited<ReturnType<typeof loadModelLibrary>>["create"]
+    >["meshes"],
+  ) => void,
+) {
+  const library = await loadModelLibrary(
+    scene,
+    {
+      Mill: "/assets/landmarks/Mill.glb",
+      ...modelUrls("nature", NATURE),
+      ...modelUrls("world", worldModels),
+      ...modelUrls("village", VILLAGE),
+      ...modelUrls("props", PROPS),
+    },
+    (name) => !VILLAGE.includes(name),
+  );
+  const weathered = new Set<Material>();
   let serial = 0;
   let lowQuality = false,
     lastFocus = -Infinity;
@@ -83,11 +101,17 @@ export async function loadScenery(scene: Scene) {
   const instances: ReturnType<typeof library.create>[] = [];
 
   const details: ReturnType<typeof library.create>[] = [];
+  function invalidateFocus() {
+    lastFocus = -Infinity;
+    focusPosition.x = Infinity;
+  }
   function register(actor: ReturnType<typeof library.create>) {
     actor.root.freezeWorldMatrix();
     for (const node of actor.root.getDescendants())
       if (node instanceof TransformNode) node.freezeWorldMatrix();
     instances.push(actor);
+    invalidateFocus();
+    onReady?.(actor.meshes.filter((mesh) => mesh.metadata?.castShadow));
   }
   function place(
     name: string,
@@ -98,15 +122,35 @@ export async function loadScenery(scene: Scene) {
     y = terrainHeight(x, z),
     detail = false,
   ) {
+    if (!library.has(name)) {
+      library.whenReady(name, () =>
+        place(name, x, z, height, rotation, y, detail),
+      );
+      return;
+    }
     const actor = library.create(
       name,
       `environment:${name}:${serial++}`,
       height,
     );
+    const rock = /Rock_|Cliff|StandingStone|Sandstone/.test(name);
+    if (rock && height > 6) y -= height * 0.28;
     actor.root.position.set(x, y, z);
+    if (rock || /Watchtower|CastleWall|StoneGate/.test(name))
+      for (const mesh of actor.meshes) {
+        const material = mesh.material;
+        if (material instanceof PBRMaterial && !weathered.has(material)) {
+          new StoneWeathering(material);
+          weathered.add(material);
+        }
+      }
     actor.root.rotation.y = rotation;
     for (const mesh of actor.meshes)
-      mesh.metadata = { cameraObstacle: !detail, castShadow: !detail };
+      mesh.metadata = {
+        ...mesh.metadata,
+        cameraObstacle: !detail,
+        castShadow: !detail,
+      };
     register(actor);
     if (detail) details.push(actor);
     return actor;
@@ -119,6 +163,10 @@ export async function loadScenery(scene: Scene) {
     points: Array<{ x: number; z: number; height: number; rotation: number }>,
   ) {
     if (!points.length) return;
+    if (!library.has(name)) {
+      library.whenReady(name, () => scatter(name, points));
+      return;
+    }
     const cells = new Map<string, typeof points>();
     for (const p of points) {
       const key = `${Math.floor(p.x / 48)}:${Math.floor(p.z / 48)}`;
@@ -188,10 +236,12 @@ export async function loadScenery(scene: Scene) {
       foliageCulling.add(mesh);
     }
     prototype.dispose();
+    invalidateFocus();
   }
   function cottage(x: number, z: number, index: number, scale = 0.86) {
     const y = terrainHeight(x, z);
-    const rotation = index % 2 ? Math.PI : 0;
+    const { definition, parts } = buildingParts(index);
+    const rotation = definition.angle;
     const part = (
       name: string,
       px: number,
@@ -211,33 +261,8 @@ export async function loadScenery(scene: Scene) {
         mesh.metadata = { cameraObstacle: true, castShadow: true };
       register(actor);
     };
-    for (let side = 0; side < 4; side++) {
-      const angle = (side * Math.PI) / 2;
-      for (const offset of [-2, 0, 2]) {
-        const px = offset * Math.cos(angle) + 3 * Math.sin(angle);
-        const pz = -offset * Math.sin(angle) + 3 * Math.cos(angle);
-        const door = side === 0 && offset === 0;
-        part(
-          door ? "Wall_Plaster_Door_Round" : "Wall_Plaster_Window_Wide_Flat",
-          px,
-          0,
-          pz,
-          angle,
-        );
-        if (door) {
-          part("Door_1_Round", px - 0.52, 0, pz, angle);
-          part("DoorFrame_Round_WoodDark", px, 0, pz, angle);
-        } else {
-          part("Window_Wide_Flat1", px, 0, pz, angle);
-          part("WindowShutters_Wide_Flat_Open", px, 0, pz, angle);
-        }
-      }
-    }
-    part("Roof_RoundTiles_6x6", 0, 3, 0);
-    part("Roof_Front_Brick6", 0, 3, 3);
-    part("Roof_Front_Brick6", 0, 3, -3, Math.PI);
-    part("Prop_Chimney", 1.4, 3.5, -0.9);
-    part("Prop_Vine1", -2.7, 0, 3.05);
+    for (const piece of parts)
+      part(piece.model, piece.x, piece.y, piece.z, piece.angle);
     place("Barrel", x + 3.2, z + 1.7, 1.1, 0, y);
     place("Crate_Wooden", x + 3.3, z + 0.5, 0.8, 0.2, y);
     place("Bush_Common_Flowers", x - 3.1, z - 1, 1.1, 0, y, true);
@@ -271,8 +296,7 @@ export async function loadScenery(scene: Scene) {
     },
     setQuality(low: boolean) {
       lowQuality = low;
-      lastFocus = -Infinity;
-      focusPosition.x = Infinity;
+      invalidateFocus();
     },
     dispose() {
       foliageCulling.dispose();

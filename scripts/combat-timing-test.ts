@@ -94,7 +94,10 @@ for (const classId of CLASS_IDS) {
       );
       const interrupted = enemy().cast!.resolvesAt;
       const special = (e: (typeof p.events)[number]) =>
-        e.type === "hit" && !e.auto;
+        e.type === "hit" &&
+        !e.auto &&
+        e.source === enemy().id &&
+        e.target === p.profile.id;
       const hits = p.events.filter(special).length;
       p.send({ kind: "attack", target: enemy().id, slot: 1 });
       await until(() =>

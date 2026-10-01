@@ -1,0 +1,410 @@
+[
+  {
+    "id": "bulbasaur",
+    "number": 1,
+    "types": ["grass", "poison"],
+    "stats": [45, 49, 49, 65, 65, 45],
+    "size": 0.7,
+    "catchRate": 45
+  },
+  {
+    "id": "ivysaur",
+    "number": 2,
+    "types": ["grass", "poison"],
+    "stats": [60, 62, 63, 80, 80, 60],
+    "size": 1,
+    "catchRate": 45
+  },
+  {
+    "id": "venusaur",
+    "number": 3,
+    "types": ["grass", "poison"],
+    "stats": [80, 82, 83, 100, 100, 80],
+    "size": 2,
+    "catchRate": 45
+  },
+  {
+    "id": "charmander",
+    "number": 4,
+    "types": ["fire"],
+    "stats": [39, 52, 43, 60, 50, 65],
+    "size": 0.6,
+    "catchRate": 45
+  },
+  {
+    "id": "charmeleon",
+    "number": 5,
+    "types": ["fire"],
+    "stats": [58, 64, 58, 80, 65, 80],
+    "size": 1.1,
+    "catchRate": 45
+  },
+  {
+    "id": "charizard",
+    "number": 6,
+    "types": ["fire", "flying"],
+    "stats": [78, 84, 78, 109, 85, 100],
+    "size": 1.7,
+    "catchRate": 45
+  },
+  {
+    "id": "squirtle",
+    "number": 7,
+    "types": ["water"],
+    "stats": [44, 48, 65, 50, 64, 43],
+    "size": 0.5,
+    "catchRate": 45
+  },
+  {
+    "id": "wartortle",
+    "number": 8,
+    "types": ["water"],
+    "stats": [59, 63, 80, 65, 80, 58],
+    "size": 1,
+    "catchRate": 45
+  },
+  {
+    "id": "blastoise",
+    "number": 9,
+    "types": ["water"],
+    "stats": [79, 83, 100, 85, 105, 78],
+    "size": 1.6,
+    "catchRate": 45
+  },
+  {
+    "id": "pichu",
+    "number": 172,
+    "types": ["electric"],
+    "stats": [20, 40, 15, 35, 35, 60],
+    "size": 0.3,
+    "catchRate": 190
+  },
+  {
+    "id": "pikachu",
+    "number": 25,
+    "types": ["electric"],
+    "stats": [35, 55, 40, 50, 50, 90],
+    "size": 0.4,
+    "catchRate": 190
+  },
+  {
+    "id": "raichu",
+    "number": 26,
+    "types": ["electric"],
+    "stats": [60, 90, 55, 90, 80, 110],
+    "size": 0.8,
+    "catchRate": 75
+  },
+  {
+    "id": "eevee",
+    "number": 133,
+    "types": ["normal"],
+    "stats": [55, 55, 50, 45, 65, 55],
+    "size": 0.3,
+    "catchRate": 45
+  },
+  {
+    "id": "vaporeon",
+    "number": 134,
+    "types": ["water"],
+    "stats": [130, 65, 60, 110, 95, 65],
+    "size": 1,
+    "catchRate": 45
+  },
+  {
+    "id": "jolteon",
+    "number": 135,
+    "types": ["electric"],
+    "stats": [65, 65, 60, 110, 95, 130],
+    "size": 0.8,
+    "catchRate": 45
+  },
+  {
+    "id": "flareon",
+    "number": 136,
+    "types": ["fire"],
+    "stats": [65, 130, 60, 95, 110, 65],
+    "size": 0.9,
+    "catchRate": 45
+  },
+  {
+    "id": "pidgey",
+    "number": 16,
+    "types": ["normal", "flying"],
+    "stats": [40, 45, 40, 35, 35, 56],
+    "size": 0.3,
+    "catchRate": 255
+  },
+  {
+    "id": "pidgeotto",
+    "number": 17,
+    "types": ["normal", "flying"],
+    "stats": [63, 60, 55, 50, 50, 71],
+    "size": 1.1,
+    "catchRate": 120
+  },
+  {
+    "id": "pidgeot",
+    "number": 18,
+    "types": ["normal", "flying"],
+    "stats": [83, 80, 75, 70, 70, 101],
+    "size": 1.5,
+    "catchRate": 45
+  },
+  {
+    "id": "caterpie",
+    "number": 10,
+    "types": ["bug"],
+    "stats": [45, 30, 35, 20, 20, 45],
+    "size": 0.3,
+    "catchRate": 255
+  },
+  {
+    "id": "metapod",
+    "number": 11,
+    "types": ["bug"],
+    "stats": [50, 20, 55, 25, 25, 30],
+    "size": 0.7,
+    "catchRate": 120
+  },
+  {
+    "id": "butterfree",
+    "number": 12,
+    "types": ["bug", "flying"],
+    "stats": [60, 45, 50, 90, 80, 70],
+    "size": 1.1,
+    "catchRate": 45
+  },
+  {
+    "id": "oddish",
+    "number": 43,
+    "types": ["grass", "poison"],
+    "stats": [45, 50, 55, 75, 65, 30],
+    "size": 0.5,
+    "catchRate": 255
+  },
+  {
+    "id": "gloom",
+    "number": 44,
+    "types": ["grass", "poison"],
+    "stats": [60, 65, 70, 85, 75, 40],
+    "size": 0.8,
+    "catchRate": 120
+  },
+  {
+    "id": "vileplume",
+    "number": 45,
+    "types": ["grass", "poison"],
+    "stats": [75, 80, 85, 110, 90, 50],
+    "size": 1.2,
+    "catchRate": 45
+  },
+  {
+    "id": "poliwag",
+    "number": 60,
+    "types": ["water"],
+    "stats": [40, 50, 40, 40, 40, 90],
+    "size": 0.6,
+    "catchRate": 255
+  },
+  {
+    "id": "poliwhirl",
+    "number": 61,
+    "types": ["water"],
+    "stats": [65, 65, 65, 50, 50, 90],
+    "size": 1,
+    "catchRate": 120
+  },
+  {
+    "id": "poliwrath",
+    "number": 62,
+    "types": ["water", "fighting"],
+    "stats": [90, 95, 95, 70, 90, 70],
+    "size": 1.3,
+    "catchRate": 45
+  },
+  {
+    "id": "gastly",
+    "number": 92,
+    "types": ["ghost", "poison"],
+    "stats": [30, 35, 30, 100, 35, 80],
+    "size": 1.3,
+    "catchRate": 190
+  },
+  {
+    "id": "haunter",
+    "number": 93,
+    "types": ["ghost", "poison"],
+    "stats": [45, 50, 45, 115, 55, 95],
+    "size": 1.6,
+    "catchRate": 90
+  },
+  {
+    "id": "gengar",
+    "number": 94,
+    "types": ["ghost", "poison"],
+    "stats": [60, 65, 60, 130, 75, 110],
+    "size": 1.5,
+    "catchRate": 45
+  },
+  {
+    "id": "geodude",
+    "number": 74,
+    "types": ["rock", "ground"],
+    "stats": [40, 80, 100, 30, 30, 20],
+    "size": 0.4,
+    "catchRate": 255
+  },
+  {
+    "id": "graveler",
+    "number": 75,
+    "types": ["rock", "ground"],
+    "stats": [55, 95, 115, 45, 45, 35],
+    "size": 1,
+    "catchRate": 120
+  },
+  {
+    "id": "golem",
+    "number": 76,
+    "types": ["rock", "ground"],
+    "stats": [80, 120, 130, 55, 65, 45],
+    "size": 1.4,
+    "catchRate": 45
+  },
+  {
+    "id": "magnemite",
+    "number": 81,
+    "types": ["electric", "steel"],
+    "stats": [25, 35, 70, 95, 55, 45],
+    "size": 0.3,
+    "catchRate": 190
+  },
+  {
+    "id": "magneton",
+    "number": 82,
+    "types": ["electric", "steel"],
+    "stats": [50, 60, 95, 120, 70, 70],
+    "size": 1,
+    "catchRate": 60
+  },
+  {
+    "id": "magnezone",
+    "number": 462,
+    "types": ["electric", "steel"],
+    "stats": [70, 70, 115, 130, 90, 60],
+    "size": 1.2,
+    "catchRate": 30
+  },
+  {
+    "id": "swinub",
+    "number": 220,
+    "types": ["ice", "ground"],
+    "stats": [50, 50, 40, 30, 30, 50],
+    "size": 0.4,
+    "catchRate": 225
+  },
+  {
+    "id": "piloswine",
+    "number": 221,
+    "types": ["ice", "ground"],
+    "stats": [100, 100, 80, 60, 60, 50],
+    "size": 1.1,
+    "catchRate": 75
+  },
+  {
+    "id": "mamoswine",
+    "number": 473,
+    "types": ["ice", "ground"],
+    "stats": [110, 130, 80, 70, 60, 80],
+    "size": 2.5,
+    "catchRate": 50
+  },
+  {
+    "id": "dratini",
+    "number": 147,
+    "types": ["dragon"],
+    "stats": [41, 64, 45, 50, 50, 50],
+    "size": 1.8,
+    "catchRate": 45
+  },
+  {
+    "id": "dragonair",
+    "number": 148,
+    "types": ["dragon"],
+    "stats": [61, 84, 65, 70, 70, 70],
+    "size": 4,
+    "catchRate": 45
+  },
+  {
+    "id": "dragonite",
+    "number": 149,
+    "types": ["dragon", "flying"],
+    "stats": [91, 134, 95, 100, 100, 80],
+    "size": 2.2,
+    "catchRate": 45
+  },
+  {
+    "id": "abra",
+    "number": 63,
+    "types": ["psychic"],
+    "stats": [25, 20, 15, 105, 55, 90],
+    "size": 0.9,
+    "catchRate": 200
+  },
+  {
+    "id": "kadabra",
+    "number": 64,
+    "types": ["psychic"],
+    "stats": [40, 35, 30, 120, 70, 105],
+    "size": 1.3,
+    "catchRate": 100
+  },
+  {
+    "id": "alakazam",
+    "number": 65,
+    "types": ["psychic"],
+    "stats": [55, 50, 45, 135, 95, 120],
+    "size": 1.5,
+    "catchRate": 50
+  },
+  {
+    "id": "sandshrew",
+    "number": 27,
+    "types": ["ground"],
+    "stats": [50, 75, 85, 20, 30, 40],
+    "size": 0.6,
+    "catchRate": 255
+  },
+  {
+    "id": "sandslash",
+    "number": 28,
+    "types": ["ground"],
+    "stats": [75, 100, 110, 45, 55, 65],
+    "size": 1,
+    "catchRate": 90
+  },
+  {
+    "id": "cleffa",
+    "number": 173,
+    "types": ["fairy"],
+    "stats": [50, 25, 28, 45, 55, 15],
+    "size": 0.3,
+    "catchRate": 150
+  },
+  {
+    "id": "clefairy",
+    "number": 35,
+    "types": ["fairy"],
+    "stats": [70, 45, 48, 60, 65, 35],
+    "size": 0.6,
+    "catchRate": 150
+  },
+  {
+    "id": "clefable",
+    "number": 36,
+    "types": ["fairy"],
+    "stats": [95, 70, 73, 95, 90, 60],
+    "size": 1.3,
+    "catchRate": 25
+  }
+]

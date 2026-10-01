@@ -5,11 +5,13 @@ export function labelPresentation(
   width: number,
   fov: number,
   aspect: number,
+  maxFraction = 0.24,
+  desiredScale = 1,
 ) {
   const visible = Number.isFinite(depth) && depth >= 3.5;
   const maximumWidth =
-    Math.max(0, depth) * 2 * Math.tan(fov / 2) * aspect * 0.24;
-  return { visible, scale: Math.min(1, maximumWidth / width) };
+    Math.max(0, depth) * 2 * Math.tan(fov / 2) * aspect * maxFraction;
+  return { visible, scale: Math.min(desiredScale, maximumWidth / width) };
 }
 export function bodyVisibility(
   distance: number,

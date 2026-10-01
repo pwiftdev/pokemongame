@@ -1,7 +1,14 @@
 import { ABILITIES, ELEMENTS } from "../../../../packages/shared/data";
+import { POKEMON_MOVES } from "../../../../packages/shared/pokemon-moves";
+import {
+  TYPE_COLORS,
+  type PokemonType,
+} from "../../../../packages/shared/pokemon-types";
 import { AURAS, type AuraId } from "../../../../packages/shared/combat-rules";
 
 const glyphs: Record<string, string> = {
+  leaf: '<path d="M20 3C7 2 2 8 5 15c4 8 15 3 15-12Z"/><path d="M4 21 15 9m-7 8v-5m4 1h5"/>',
+  lightning: '<path d="m14 2-9 12h6l-1 8 9-13h-6Z"/>',
   sword:
     '<path d="M20 4v4L10 18l-4-4L16 4Z"/><path d="m5 13 6 6M7.5 16.5 4 20"/>',
   shieldBash:
@@ -94,12 +101,41 @@ function svg(glyph: string, cls: string) {
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${glyphs[glyph] ?? glyphs.sword}</svg>`;
 }
 export function abilityColor(id: string) {
+  if (POKEMON_MOVES[id]) return TYPE_COLORS[POKEMON_MOVES[id].type];
   const ability = ABILITIES[id];
   return ability ? ELEMENTS[ability.element].color : "#9ec7dd";
 }
 /** Square icon tile for an ability, tinted by its element. */
 export function abilityIcon(id: string, cls = "") {
-  return `<span class="ability-icon ${cls}" style="--tint:${abilityColor(id)}">${svg(ABILITY_GLYPHS[id] ?? "sword", "ability-glyph")}</span>`;
+  const move = POKEMON_MOVES[id];
+  const types: Record<PokemonType, string> = {
+    normal: "fist",
+    fire: "firebolt",
+    water: "venom",
+    electric: "lightning",
+    grass: "leaf",
+    ice: "snowflake",
+    fighting: "fist",
+    poison: "venom",
+    ground: "meteor",
+    flying: "wind",
+    psychic: "hex",
+    bug: "claws",
+    rock: "meteor",
+    ghost: "eye",
+    dragon: "claws",
+    dark: "skull",
+    steel: "armor",
+    fairy: "stars",
+  };
+  const glyph = move
+    ? move.effect === "heal"
+      ? "heartPlus"
+      : move.shape === "self"
+        ? "shield"
+        : types[move.type]
+    : (ABILITY_GLYPHS[id] ?? "sword");
+  return `<span class="ability-icon ${cls}" style="--tint:${abilityColor(id)}">${svg(glyph, "ability-glyph")}</span>`;
 }
 export function auraIcon(id: AuraId) {
   return `<span class="aura-icon" style="--tint:${AURAS[id].color}">${svg(AURA_GLYPHS[id], "aura-glyph")}</span>`;

@@ -1,4 +1,5 @@
 import type { Biome } from "./types";
+import { POKEMON_HABITATS, POKEMON_SPAWNS } from "./pokemon-habitats";
 export interface Habitat {
   id: string;
   name: string;
@@ -290,6 +291,8 @@ export const SPAWNS: Spawn[] = [
   },
 ];
 export const encounterLeash = (boss: boolean) => (boss ? 18 : 12);
+HABITATS.push(...POKEMON_HABITATS);
+SPAWNS.push(...POKEMON_SPAWNS);
 export const encounterRespawnMs = (
   boss: boolean,
   elite: boolean,

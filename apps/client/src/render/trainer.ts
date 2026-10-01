@@ -3,39 +3,30 @@ import {
   AnimationGroupMaskMode,
   type Scene,
 } from "@babylonjs/core";
-import { heroClass, type ClassId } from "../../../../packages/shared/classes";
+import { type ClassId } from "../../../../packages/shared/classes";
+import {
+  DEFAULT_APPEARANCE,
+  type Appearance,
+} from "../../../../packages/shared/appearance";
+import { loadAvatarLibrary } from "./avatar";
 import { createAnimationMixer } from "./animation-mixer";
 import { combatMotion } from "./combat-motion";
-import { loadModelLibrary, modelUrls } from "./models";
+import { armedIdle } from "./equipment";
 
 export async function loadTrainers(scene: Scene) {
-  const library = await loadModelLibrary(
-    scene,
-    modelUrls("heroes", ["Knight", "Mage", "Rogue", "Barbarian"]),
-  );
+  const avatars = await loadAvatarLibrary(scene);
   return {
-    create(id: string, _self: boolean, classId: ClassId = "knight") {
-      const definition = heroClass(classId),
-        actor = library.create(definition.model, id, undefined, true);
-
-      const weaponNames =
-        /^(1H_|2H_|Badge_Shield|Rectangle_Shield|Round_Shield|Spike_Shield|Barbarian_Round_Shield|Spellbook|Knife|Throwable|Mug)/;
-      for (const mesh of actor.meshes) {
-        const name = mesh.name.slice(id.length + 1);
-        if (weaponNames.test(name))
-          mesh.setEnabled(
-            [definition.weapon, definition.offhand].includes(name),
-          );
-      }
-      actor.root.computeWorldMatrix(true);
-      const bounds = actor.root.getHierarchyBoundingVectors(true, (m) =>
-        m.isEnabled(),
-      );
-      actor.root.scaling.setAll(
-        1.9 / Math.max(0.1, bounds.max.y - bounds.min.y),
-      );
+    create(
+      id: string,
+      _self: boolean,
+      classId: ClassId = "knight",
+      appearance: Appearance = DEFAULT_APPEARANCE,
+      armed = true,
+    ) {
+      const actor = avatars.create(id, classId, appearance, armed);
+      const idle = armed ? armedIdle(classId) : "Idle";
       const lowerBody = (name: string) =>
-        /:(hips|root|.*leg[.]|foot[.]|toes[.]|kneeIK|heelIK|IK-foot|IK-toe|control-foot|control-heel|control-toe)/.test(
+        /:(hips|root|.*leg[.]|foot[.]|toes[.]|pelvis|thigh_|calf_|foot_|ball_|kneeIK|heelIK|IK-foot|IK-toe|control-foot|control-heel|control-toe)/.test(
           name,
         );
       const legNames = [
@@ -130,7 +121,7 @@ export async function loadTrainers(scene: Scene) {
         const now = performance.now() / 1000;
         const pace = speed ?? (moving ? (sprint ? 8 : 5.5) : 0);
         const locomotion = !moving
-          ? "Idle"
+          ? idle
           : pace < 2.3
             ? "Walking_A"
             : sprint
@@ -165,7 +156,7 @@ export async function loadTrainers(scene: Scene) {
           holdUntil = now + (moving ? 0.08 : 0.16);
         }
         if (now < holdUntil) return;
-        mixer.play(locomotion, true, stride);
+        mixer.play(armed ? idle : locomotion, true, armed ? undefined : stride);
       }
       animate(0, false, false);
       return {
@@ -184,7 +175,7 @@ export async function loadTrainers(scene: Scene) {
         action,
         cancel() {
           holdUntil = 0;
-          mixer.play("Idle", true, undefined, true);
+          mixer.play(idle, true, undefined, true);
         },
         dispose() {
           mixer.dispose();
@@ -194,7 +185,9 @@ export async function loadTrainers(scene: Scene) {
         },
       };
     },
-    dispose: () => library.dispose(),
+    dispose: () => {
+      avatars.dispose();
+    },
   };
 }
 export type TrainerActor = ReturnType<

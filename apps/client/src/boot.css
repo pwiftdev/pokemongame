@@ -1,0 +1,49 @@
+@import "./theme.css";
+.boot-screen {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: hidden;
+  font-family: var(--wop-font-ui);
+}
+.boot-screen[hidden],
+#boot-recovery[hidden] {
+  display: none;
+}
+.boot-content {
+  width: min(100%, 440px);
+  text-align: center;
+}
+#boot-heading {
+  margin: 0 0 28px;
+  color: var(--wop-yellow);
+  font: 700 clamp(48px, 12vw, 88px) / 1 var(--wop-font-display);
+  letter-spacing: 3px;
+  text-shadow: 3px 3px 0 var(--wop-yellow-d);
+}
+#boot-progress {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 14px;
+  padding: 2px;
+  border: 2px solid var(--wop-line);
+  background: var(--wop-deep);
+}
+#boot-progress::-webkit-progress-bar {
+  background: var(--wop-deep);
+}
+#boot-progress::-webkit-progress-value {
+  background: var(--wop-yellow);
+}
+#boot-progress::-moz-progress-bar {
+  background: var(--wop-yellow);
+}
+#boot-recovery {
+  margin-top: 24px;
+  color: var(--wop-text-2);
+  font-size: 14px;
+}
+#boot-current {
+  margin: 0 0 16px;
+}

@@ -4,20 +4,62 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="theme-color" content="#173d36" />
+    <meta name="theme-color" content="#060b26" />
     <meta
       name="description"
       content="An original creature-taming island adventure. Explore together, find your companion, and make a little discovery every day."
     />
-    <title>Pokemon Dollars — An island full of possibility</title>
+    <title>World of Pokémon — Explore. Befriend. Battle.</title>
+    <link rel="stylesheet" href="/src/boot.css" />
+    <style>
+      body {
+        margin: 0;
+        background: #060b26;
+      }
+      .boot-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        background: #060b26;
+        color: #ffffff;
+      }
+      .is-loading #app,
+      .is-loading #world {
+        visibility: hidden;
+      }
+    </style>
   </head>
-  <body>
+  <body class="is-loading">
+    <section
+      id="boot-screen"
+      class="boot-screen"
+      aria-label="Loading World of Pokémon"
+      aria-busy="true"
+    >
+      <div class="boot-content">
+        <h1 id="boot-heading">POKEMON</h1>
+        <progress
+          id="boot-progress"
+          aria-label="Loading Pokémon"
+          max="1"
+          value="0"
+        ></progress>
+        <div id="boot-recovery" hidden>
+          <p id="boot-current" role="status"></p>
+          <button id="boot-retry" class="primary" type="button">
+            Retry loading
+          </button>
+        </div>
+        <noscript>Enable JavaScript to load the game.</noscript>
+      </div>
+    </section>
+
     <canvas
       tabindex="0"
       id="world"
       aria-label="Three-dimensional island world"
     ></canvas>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="app" inert aria-hidden="true"></div>
+    <script type="module" src="/src/boot.ts"></script>
   </body>
 </html>

@@ -1,251 +1,398 @@
-import { ABILITIES } from "../../../packages/shared/data";
-import type { Biome, GameEvent } from "../../../packages/shared/types";
-
+import {
+  CAPTURE_TIMING,
+  EVOLUTION_TIMING,
+} from "../../../packages/shared/pokedex";
+import type {
+  Biome,
+  GameEvent,
+  WorldSnapshot,
+} from "../../../packages/shared/types";
+import { POKEMON } from "../../../packages/shared/pokemon";
+import { AudioMixer } from "./audio/mixer";
+import {
+  audioDefaults,
+  normalizeAudio,
+  tracks,
+  type AudioSettings,
+  type CueId,
+  type Point,
+} from "./audio/catalog";
+import { abilitySound, impactSound } from "./audio/combat";
+import { footSurface, soundscape } from "./audio/soundscape";
 export class GameAudio {
-  private context?: AudioContext;
-  private master?: GainNode;
-  private music?: GainNode;
-  private effects?: GainNode;
-  private timer?: number;
-  private step = 0;
+  private mixer?: AudioMixer;
+  private settings = { ...audioDefaults };
   private biome: Biome = "town";
-  private settings = { master: 0.5, music: 0.25, effects: 0.65, mute: false };
-
+  private nextBiome: Biome = "town";
+  private biomeChangedAt = 0;
+  private position: Point = { x: 0, z: -32 };
+  private alpha = -Math.PI / 2;
+  private snapshot?: WorldSnapshot;
+  private self = "";
+  private playing = false;
+  private connected = true;
+  private timer?: ReturnType<typeof setInterval>;
+  private scheduled = new Set<ReturnType<typeof setTimeout>>();
+  private combatUntil = 0;
+  private nextCall = 0;
+  private remoteSteps = new Map<string, { x: number; z: number; at: number }>();
+  private disposed = false;
+  private visibility = () => {
+    if (document.hidden && !this.settings.backgroundAudio)
+      this.cancelScheduled();
+    this.update();
+  };
+  constructor() {
+    document.addEventListener("visibilitychange", this.visibility);
+  }
   async start() {
-    if (!this.context) {
-      this.context = new AudioContext();
-      this.master = this.context.createGain();
-      this.music = this.context.createGain();
-      this.effects = this.context.createGain();
-      this.master.connect(this.context.destination);
-      this.music.connect(this.master);
-      this.effects.connect(this.master);
-      this.apply();
-      this.timer = window.setInterval(() => this.ambience(), 1800);
-      this.ambience();
-    }
-    await this.context.resume();
+    if (this.disposed || this.settings.mute || this.settings.master === 0)
+      return;
+    try {
+      if (!this.mixer) {
+        this.mixer = new AudioMixer(
+          new AudioContext({ latencyHint: "interactive" }),
+        );
+        this.mixer.configure(this.settings);
+        this.timer = setInterval(() => this.update(), 200);
+        for (const id of [
+          "ui",
+          "error",
+          "open",
+          "swing-0",
+          "hit-0",
+          "step-stone-0",
+          "step-grass-0",
+          "fire-cast",
+          "capture-shake",
+          "reward",
+        ])
+          void this.mixer.buffers.get(id).catch(() => {});
+      }
+      this.update();
+      if (this.audible()) await this.mixer.context.resume();
+    } catch {}
   }
-
-  configure(settings: Partial<typeof this.settings>) {
-    Object.assign(this.settings, settings);
-    this.apply();
+  configure(settings: Partial<AudioSettings>) {
+    this.settings = normalizeAudio({ ...this.settings, ...settings });
+    this.mixer?.configure(this.settings);
+    if (this.settings.mute) this.cancelScheduled();
+    this.update();
   }
-
-  private apply() {
-    if (!this.master || !this.music || !this.effects) return;
-    this.master.gain.value = this.settings.mute ? 0 : this.settings.master;
-    this.music.gain.value = this.settings.music;
-    this.effects.gain.value = this.settings.effects;
-  }
-
-  private tone(
-    frequency: number,
-    duration: number,
-    volume: number,
-    music = false,
-    delay = 0,
-  ) {
-    if (!this.context || !this.music || !this.effects) return;
-    const oscillator = this.context.createOscillator();
-    const envelope = this.context.createGain();
-    const time = this.context.currentTime + delay;
-    oscillator.type = music ? "sine" : "triangle";
-    oscillator.frequency.setValueAtTime(frequency, time);
-    envelope.gain.setValueAtTime(0, time);
-    envelope.gain.linearRampToValueAtTime(volume, time + 0.035);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + duration);
-    oscillator.connect(envelope);
-    envelope.connect(music ? this.music : this.effects);
-    oscillator.start(time);
-    oscillator.stop(time + duration + 0.02);
-    oscillator.onended = () => {
-      oscillator.disconnect();
-      envelope.disconnect();
-    };
-  }
-
   setBiome(biome: Biome) {
-    if (biome === this.biome) return;
-    this.biome = biome;
-    this.step = 0;
+    if (biome !== this.nextBiome) {
+      this.nextBiome = biome;
+      this.biomeChangedAt = Date.now();
+    }
+    if (Date.now() - this.biomeChangedAt >= 1500) this.biome = biome;
   }
-
-  private ambience() {
-    const melodies: Partial<Record<Biome, number[]>> = {
-      town: [196, 246.94, 293.66, 369.99, 329.63, 293.66, 246.94, 220],
-      meadow: [261.63, 329.63, 392, 440, 392, 329.63, 293.66, 329.63],
-      forest: [220, 261.63, 329.63, 493.88, 440, 329.63, 293.66, 261.63],
-      ruins: [146.83, 220, 293.66, 329.63, 293.66, 220, 196, 164.81],
-    };
-    const notes = melodies[this.biome] ?? melodies.forest!;
-    this.tone(notes[this.step++ % notes.length], 3.5, 0.065, true);
-    this.tone(notes[0] / 2, 3.2, 0.03, true);
-    if (this.step % 4 === 0 && this.biome !== "town") {
-      const call =
-        this.biome === "ruins"
-          ? [530, 470, 360]
-          : this.biome === "forest"
-            ? [1174, 1568, 1318]
-            : [1318, 1568];
-      call.forEach((frequency, index) =>
-        this.tone(frequency, 0.18, 0.018, false, index * 0.2),
+  setPlaying(playing: boolean) {
+    this.playing = playing;
+    if (!playing) {
+      this.combatUntil = 0;
+      this.cancelScheduled();
+    }
+    this.update();
+  }
+  setConnected(connected: boolean) {
+    this.connected = connected;
+    if (!connected) {
+      this.combatUntil = 0;
+      this.cancelScheduled();
+    }
+    this.update();
+  }
+  setListener(point: Point, alpha: number) {
+    this.position = { ...point };
+    this.alpha = alpha;
+    this.mixer?.setListener(point, alpha);
+  }
+  setSnapshot(snapshot: WorldSnapshot, self: string) {
+    this.snapshot = snapshot;
+    this.self = self;
+    const player = snapshot.players.find((player) => player.id === self);
+    if (
+      player?.inCombat ||
+      snapshot.duels.some(
+        (duel) =>
+          duel.state === "active" && (duel.a === self || duel.b === self),
+      )
+    )
+      this.combatUntil = Date.now() + 5000;
+    if (player && player.hp <= 0) this.combatUntil = 0;
+    const ids = new Set(snapshot.players.map((player) => player.id));
+    for (const id of this.remoteSteps.keys())
+      if (!ids.has(id)) this.remoteSteps.delete(id);
+    for (const other of snapshot.players) {
+      if (other.id === self) continue;
+      const previous = this.remoteSteps.get(other.id);
+      if (
+        previous &&
+        this.connected &&
+        other.moving &&
+        Math.hypot(other.x - previous.x, other.z - previous.z) > 1.4 &&
+        Date.now() - previous.at > 280 &&
+        Math.hypot(other.x - this.position.x, other.z - this.position.z) < 16
+      ) {
+        this.emit(footSurface(other), other, 0.45);
+        this.remoteSteps.set(other.id, {
+          x: other.x,
+          z: other.z,
+          at: Date.now(),
+        });
+      } else if (!previous || !other.moving)
+        this.remoteSteps.set(other.id, {
+          x: other.x,
+          z: other.z,
+          at: Date.now(),
+        });
+    }
+  }
+  private audible() {
+    return (
+      !this.disposed &&
+      !this.settings.mute &&
+      this.settings.master > 0 &&
+      (!document.hidden || this.settings.backgroundAudio)
+    );
+  }
+  private update() {
+    if (!this.mixer || this.disposed) return;
+    const active = this.audible();
+    this.mixer.setActive(active);
+    if (!active) return;
+    this.mixer.setListener(this.position, this.alpha);
+    const exploring = this.playing && this.connected;
+    this.mixer.update(
+      exploring && Date.now() < this.combatUntil
+        ? "combat"
+        : tracks[exploring ? this.biome : "town"],
+      exploring
+        ? soundscape(
+            this.biome,
+            this.position,
+            this.snapshot?.conditions?.time === "night",
+            this.snapshot?.conditions?.weather === "rain",
+          )
+        : [],
+    );
+    if (
+      exploring &&
+      Date.now() > this.nextCall &&
+      Date.now() > this.combatUntil
+    ) {
+      this.nextCall = Date.now() + 12000 + Math.random() * 12000;
+      const nearby =
+        this.snapshot?.wilds.filter(
+          (w) =>
+            w.hp > 0 &&
+            ["idle", "roam"].includes(w.state) &&
+            Math.hypot(w.x - this.position.x, w.z - this.position.z) < 22,
+        ) ?? [];
+      const wild = nearby[Math.floor(Math.random() * nearby.length)];
+      if (wild)
+        this.emit("creature-call", wild, 0.6, this.creaturePitch(wild.species));
+    }
+  }
+  private emit(cue: CueId, point?: Point, volume = 1, pitch = 1) {
+    if (this.audible()) void this.mixer?.play(cue, point, volume, pitch);
+  }
+  private creaturePitch(species?: string) {
+    return Math.max(
+      0.75,
+      Math.min(1.45, 1.2 / Math.sqrt(POKEMON[species ?? ""]?.size ?? 1)),
+    );
+  }
+  private point(event: GameEvent, impact = false): Point | undefined {
+    if (event.x !== undefined && event.z !== undefined)
+      return { x: event.x, z: event.z };
+    const id = impact ? event.target : (event.source ?? event.target);
+    const player = this.snapshot?.players.find((player) => player.id === id);
+    if (player)
+      return !impact && event.actor === "companion" && player.pet
+        ? player.pet
+        : player;
+    return this.snapshot?.wilds.find((wild) => wild.id === id);
+  }
+  step(point: Point, landing = false, sprint = false) {
+    if (this.playing && this.connected)
+      this.emit(
+        footSurface(point),
+        undefined,
+        landing ? 1.35 : sprint ? 1.1 : 0.85,
+        landing ? 0.9 : 1,
       );
-    }
   }
-
-  playAbility(id?: string, incoming = false) {
-    const ability = ABILITIES[id ?? ""];
-    if (ability?.effect === "heal") {
-      [330, 440, 660].forEach((note, i) =>
-        this.tone(note, 0.5, 0.08, false, i * 0.1),
-      );
+  playImpact(event: GameEvent) {
+    if (!this.connected) return;
+    const point = this.point(event, true);
+    if (!point && event.source !== this.self && event.target !== this.self)
       return;
-    }
-    if (ability?.effect === "guard") {
-      this.tone(220, 0.65, 0.12);
-      this.tone(440, 0.5, 0.07, false, 0.1);
-      return;
-    }
-    if (incoming) return;
-    const melee = (ability?.range ?? 0) > 0 && ability!.range <= 5;
-    this.noise(melee ? 0.15 : 0.28, melee ? 2800 : 1200, 0.055, true);
-    if (!melee) this.tone(ability?.element === "flame" ? 150 : 520, 0.3, 0.045);
+    this.emit(impactSound(event), point, event.type === "dot" ? 0.4 : 1);
+    if (
+      !event.heal &&
+      event.type !== "dot" &&
+      (!event.outcome || ["hit", "crit"].includes(event.outcome)) &&
+      this.snapshot?.wilds.some((w) => w.id === event.target && w.hp > 0)
+    )
+      this.emit("creature-hurt", point, 0.4);
+    if (event.target === this.self && event.outcome === "crit")
+      this.mixer?.duck(0.7);
   }
-
-  /** Sounds when a combat event arrives; landing hits use playImpact. */
-  playCombat(event: GameEvent, self: string) {
-    const ability = ABILITIES[event.ability ?? ""];
+  handleEvent(event: GameEvent) {
+    if (!this.connected) return;
+    const local =
+      (!event.source && !event.target) ||
+      event.type === "reward" ||
+      event.source === this.self ||
+      event.target === this.self;
+    const point = this.point(event);
+    if (
+      !local &&
+      (!point ||
+        Math.hypot(point.x - this.position.x, point.z - this.position.z) > 40)
+    )
+      return;
     switch (event.type) {
+      case "reward":
+        if (event.target) this.emit("coin", undefined, 0.6);
+        break;
       case "cast":
-        if (event.source === self) this.playAbility(event.ability);
+      case "pet-cast":
+        this.emit(
+          abilitySound(event.ability),
+          point,
+          event.actor === "companion" ? 0.8 : 1,
+        );
+        break;
+      case "swing":
+        this.emit("swing", point, 0.7);
         break;
       case "attack":
-        if (
-          event.source === self &&
-          ["heal", "guard", "evasion"].includes(ability?.effect ?? "")
-        )
-          this.playAbility(event.ability);
+        if (["heal", "guard"].includes(abilitySound(event.ability)))
+          this.emit(abilitySound(event.ability), point);
         break;
       case "dash":
-        this.noise(0.22, 1800, 0.05, true);
+        this.emit("dash", point);
         break;
       case "interrupt":
-        [988, 740, 494].forEach((note, i) =>
-          this.tone(note, 0.12, 0.06, false, i * 0.05),
-        );
-        this.noise(0.18, 3200, 0.05);
-        break;
-      case "aggro":
-        if (event.target === self) {
-          this.tone(98, 0.3, 0.09);
-          this.tone(147, 0.22, 0.05, false, 0.04);
-        }
-        break;
-      case "shatter":
-        [2093, 2637, 3136].forEach((note, i) =>
-          this.tone(note, 0.18, 0.035, false, i * 0.03),
-        );
+        this.emit("shatter", point);
         break;
       case "cast-cancel":
-        if (event.source === self) this.tone(140, 0.25, 0.06);
+        if (event.source === this.self) this.emit("close", undefined, 0.7);
+        break;
+      case "shatter":
+        this.emit("shatter", this.point(event, true));
+        break;
+      case "aggro":
+        this.emit("creature-roar", point, 0.55);
+        break;
+      case "boss-phase":
+      case "boss-telegraph":
+        this.emit("creature-roar", point);
+        if (local) this.mixer?.duck(2);
+        break;
+      case "pet-heal":
+      case "heal":
+        this.emit("heal", point);
+        break;
+      case "pet-swap":
+        this.emit("magic", point, 0.7);
+        this.later(350, () => this.emit("creature-call", point));
+        break;
+      case "defeat":
+        if (event.target === this.self) {
+          this.emit("defeat");
+          this.combatUntil = 0;
+          this.mixer?.duck(3);
+        } else this.emit("creature-faint", this.point(event, true));
+        break;
+      case "capture":
+      case "capture-failed":
+        if (!event.capture || event.source !== this.self) break;
+        this.emit("swing", undefined, 0.65);
+        for (let i = 0; i < event.capture.shakes; i++)
+          this.later(CAPTURE_TIMING.flight + i * CAPTURE_TIMING.shake, () =>
+            this.emit("capture-shake"),
+          );
+        this.later(event.capture.duration - CAPTURE_TIMING.reveal, () => {
+          this.emit(event.capture!.success ? "reward" : "error");
+          this.mixer?.duck(1.5);
+        });
+        break;
+      case "duel-result":
+        this.emit(event.message === "Victory!" ? "victory" : "defeat");
+        this.mixer?.duck(4);
+        break;
+      case "evolution":
+        this.emit("magic", point);
+        this.later(EVOLUTION_TIMING.reveal, () =>
+          this.emit("reward", local ? undefined : point, local ? 1 : 0.5),
+        );
+        if (local) this.mixer?.duck(2.5);
         break;
     }
   }
+  play(kind = "ui") {
+    const cue: CueId | undefined = (
+      {
+        ui: "ui",
+        error: "error",
+        reward: "reward",
+        quest: "confirm",
+        starter: "confirm",
+        acceptQuest: "page",
+        buy: "coin",
+        use: "water",
+        class: "equip",
+        team: "equip",
+        deploy: "magic",
+        learn: "confirm",
+        level: "victory",
+        discovery: "confirm",
+        travel: "magic",
+        interact: "open",
 
-  playImpact(event: GameEvent, self?: string) {
-    const outcome = event.outcome ?? "hit";
-    const incoming = event.target === self && event.source !== self;
-    if (outcome === "parry" || outcome === "block") {
-      this.tone(1245, 0.09, 0.05);
-      this.tone(1865, 0.12, 0.03, false, 0.015);
-      if (outcome === "parry") return;
+        welcome: "confirm",
+        open: "open",
+        close: "close",
+        page: "page",
+        bag: "bag",
+        equip: "equip",
+        jump: "dash",
+        coin: "coin",
+        target: "target",
+      } as Record<string, CueId>
+    )[kind];
+    if (cue) {
+      this.emit(cue);
+      if (cue === "reward" || cue === "victory") this.mixer?.duck(4);
     }
-    if (!["hit", "crit", "block"].includes(outcome)) {
-      this.noise(0.16, 2400, 0.035, true);
-      return;
-    }
-    const ability = ABILITIES[event.ability ?? ""];
-    const crit = outcome === "crit";
-    const heavy =
-      crit ||
-      ["crush", "cleave", "meteor", "execute", "whirlwind"].includes(
-        event.ability ?? "",
-      );
-    const light = event.auto && !crit;
-    this.noise(
-      heavy ? 0.3 : light ? 0.1 : 0.15,
-      ability?.element === "tide" ? 4200 : incoming ? 700 : 950,
-      (incoming ? 0.13 : 0.11) * (light ? 0.7 : 1),
-    );
-    this.tone(heavy ? 58 : 105, heavy ? 0.28 : 0.13, light ? 0.08 : 0.12);
-    if (crit) this.tone(1480, 0.16, 0.04, false, 0.02);
-    else if (!ability || ability.range <= 5)
-      this.tone(740, 0.08, light ? 0.02 : 0.035);
   }
-
-  private noise(
-    duration: number,
-    frequency: number,
-    volume: number,
-    rising = false,
-  ) {
-    const context = this.context;
-    if (!context || !this.effects) return;
-    const buffer = context.createBuffer(
-      1,
-      Math.ceil(context.sampleRate * duration),
-      context.sampleRate,
-    );
-    const samples = buffer.getChannelData(0);
-    for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
-    const source = context.createBufferSource(),
-      filter = context.createBiquadFilter(),
-      gain = context.createGain();
-    source.buffer = buffer;
-    filter.type = rising ? "bandpass" : "lowpass";
-    const start = context.currentTime;
-    filter.frequency.setValueAtTime(frequency, start);
-    filter.frequency.exponentialRampToValueAtTime(
-      rising ? frequency * 0.25 : 90,
-      start + duration,
-    );
-    gain.gain.setValueAtTime(0.001, start);
-    gain.gain.linearRampToValueAtTime(volume, start + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
-    source.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.effects);
-    source.start(start);
-    source.onended = () => {
-      source.disconnect();
-      filter.disconnect();
-      gain.disconnect();
+  private later(ms: number, action: () => void) {
+    if (this.scheduled.size >= 24) return;
+    const timer = setTimeout(() => {
+      this.scheduled.delete(timer);
+      if (!this.disposed && this.audible()) action();
+    }, ms);
+    this.scheduled.add(timer);
+  }
+  private cancelScheduled() {
+    for (const timer of this.scheduled) clearTimeout(timer);
+    this.scheduled.clear();
+  }
+  get metrics() {
+    return {
+      ...this.mixer?.metrics,
+      biome: this.biome,
+      scheduled: this.scheduled.size,
     };
   }
-
-  play(kind = "ui") {
-    if (kind === "attack" || kind === "damage") {
-      this.tone(160, 0.2, 0.15);
-      this.tone(80, 0.28, 0.1, false, 0.05);
-    } else if (
-      ["capture", "reward", "evolve", "quest", "starter"].includes(kind)
-    ) {
-      [392, 493.88, 587.33, 783.99].forEach((note, i) =>
-        this.tone(note, 0.6, 0.12, false, i * 0.12),
-      );
-    } else if (kind === "level") {
-      [392, 523.25, 659.25, 783.99, 1046.5].forEach((note, i) =>
-        this.tone(note, 0.9, 0.1, false, i * 0.09),
-      );
-      this.tone(196, 1.4, 0.06, false, 0.1);
-    } else if (kind === "step") this.noise(0.055, 380, 0.022);
-    else if (kind === "error") this.tone(180, 0.25, 0.07);
-    else this.tone(660, 0.13, 0.045);
-  }
-
   dispose() {
+    this.disposed = true;
     clearInterval(this.timer);
-    void this.context?.close();
+    this.cancelScheduled();
+    document.removeEventListener("visibilitychange", this.visibility);
+    this.mixer?.dispose();
   }
 }

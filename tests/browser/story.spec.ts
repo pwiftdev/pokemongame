@@ -6,10 +6,17 @@ test("story board, ranger dialogue, objective markers and Pokémon habitat guide
 }) => {
   test.setTimeout(120000);
   const errors: string[] = [];
+  const legacyModels: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/assets/heroes/"))
+      legacyModels.push(request.url());
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   await begin(page, "Story preview", "squirtle", "new", "knight");
   await page.keyboard.press("j");
-  await page.locator('[data-action="claim:first-friend"]').click();
+  await page
+    .locator('.panel-quests [data-action="claim:first-friend"]')
+    .click();
   await expect(
     page.locator('[data-action="accept-quest:story-ranger"]'),
   ).toBeDisabled();
@@ -40,11 +47,12 @@ test("story board, ranger dialogue, objective markers and Pokémon habitat guide
   await expect(page.locator(".toast")).toHaveCount(0, { timeout: 12000 });
   await page.screenshot({ path: "evidence/story-ranger.png" });
   await page.keyboard.press("m");
-  await expect(page.locator(".habitat-pin.pokemon")).toHaveCount(3);
+  await expect(page.locator(".habitat-pin.pokemon")).toHaveCount(11);
   await expect(page.locator(".map-objective")).toContainText(
     "Overgrown Orchard",
   );
   await expect(page.locator(".habitat-guide")).toContainText("Squirtle");
   await page.screenshot({ path: "evidence/story-map.png" });
   expect(errors).toEqual([]);
+  expect(legacyModels).toEqual([]);
 });
