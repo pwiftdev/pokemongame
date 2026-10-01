@@ -32,6 +32,11 @@ CREATE INDEX IF NOT EXISTS players_rank ON players(((profile->>'wins')::int) DES
 CREATE OR REPLACE FUNCTION protect_ledger() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'ledger is append only'; END $$;
 DROP TRIGGER IF EXISTS ledger_append_only ON ledger;
 CREATE TRIGGER ledger_append_only BEFORE UPDATE OR DELETE ON ledger FOR EACH ROW EXECUTE FUNCTION protect_ledger();
+INSERT INTO schema_migrations(version) VALUES(2) ON CONFLICT DO NOTHING;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS wallet text UNIQUE;
+CREATE TABLE IF NOT EXISTS wop_conversions (id uuid PRIMARY KEY, player_id uuid NOT NULL REFERENCES players(id), wallet text NOT NULL, pd integer NOT NULL CHECK(pd>0), amount numeric(40,0) NOT NULL CHECK(amount>0), status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','sent','failed')), signature text UNIQUE, last_valid_height bigint, error text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS wop_conversions_player ON wop_conversions(player_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS wop_conversions_status ON wop_conversions(status, created_at);
 `;
 export async function migrate() {
   const client = await pool.connect();
@@ -62,12 +67,10 @@ export async function authenticate(token: unknown): Promise<Profile> {
   if (!result.rows[0]) throw new HttpError(401, "Session not found.");
   return normalizeProfile(result.rows[0].profile as Profile);
 }
-export async function session(nickname: string, existing?: string) {
-  if (existing)
-    return { token: existing, profile: await authenticate(existing) };
-  const token = randomBytes(32).toString("hex");
-  const profile: Profile = {
+function newProfile(nickname: string, wallet?: string): Profile {
+  return {
     id: randomUUID(),
+    ...(wallet ? { wallet } : {}),
     nickname,
     balance: 0,
     creatures: [],
@@ -80,28 +83,97 @@ export async function session(nickname: string, existing?: string) {
     wins: 0,
     losses: 0,
   };
+}
+async function inTransaction<T>(work: (client: pg.PoolClient) => Promise<T>) {
   const client = await pool.connect();
   let failed = false;
   try {
     await client.query("BEGIN");
-    await client.query(
-      "INSERT INTO players(id,token_hash,profile) VALUES($1,$2,$3)",
-      [profile.id, tokenHash(token), profile],
-    );
-    await new Transaction(client).credit(profile, 180, "welcome", "welcome");
-    await client.query("UPDATE players SET profile=$2 WHERE id=$1", [
-      profile.id,
-      profile,
-    ]);
+    const result = await work(client);
     await client.query("COMMIT");
+    return result;
   } catch (error) {
     failed = true;
     await client.query("ROLLBACK").catch(() => {});
+    if ((error as { code?: string }).code === "23505")
+      throw new HttpError(409, "That account changed meanwhile. Try again.");
     throw error;
   } finally {
     client.release(failed);
   }
+}
+async function createPlayer(
+  client: pg.PoolClient,
+  profile: Profile,
+  token: string,
+) {
+  await client.query(
+    "INSERT INTO players(id,token_hash,profile,wallet) VALUES($1,$2,$3,$4)",
+    [profile.id, tokenHash(token), profile, profile.wallet ?? null],
+  );
+  await new Transaction(client).credit(profile, 180, "welcome", "welcome");
+  await client.query("UPDATE players SET profile=$2 WHERE id=$1", [
+    profile.id,
+    profile,
+  ]);
+}
+/** Guest session: an anonymous account kept by a secret browser token. */
+export async function session(nickname: string, existing?: string) {
+  if (existing)
+    return { token: existing, profile: await authenticate(existing) };
+  const token = randomBytes(32).toString("hex");
+  const profile = newProfile(nickname);
+  await inTransaction((client) => createPlayer(client, profile, token));
   return { token, profile: normalizeProfile(profile) };
+}
+/**
+ * Wallet session after a verified signature. Returning wallets receive a fresh
+ * token; a guest token upgrades that guest account; otherwise a new account
+ * is created with the chosen nickname.
+ */
+export async function walletSession(
+  wallet: string,
+  nickname?: string,
+  guestToken?: string,
+): Promise<{ token: string; profile: Profile; linked: boolean }> {
+  const token = randomBytes(32).toString("hex");
+  return inTransaction(async (client) => {
+    const owned = await client.query(
+      "SELECT id,profile FROM players WHERE wallet=$1 FOR UPDATE",
+      [wallet],
+    );
+    if (owned.rows[0]) {
+      await client.query("UPDATE players SET token_hash=$2 WHERE id=$1", [
+        owned.rows[0].id,
+        tokenHash(token),
+      ]);
+      return {
+        token,
+        profile: normalizeProfile(owned.rows[0].profile),
+        linked: false,
+      };
+    }
+    if (guestToken && /^[a-f0-9]{64}$/.test(guestToken)) {
+      const guest = await client.query(
+        "SELECT id,profile FROM players WHERE token_hash=$1 AND wallet IS NULL FOR UPDATE",
+        [tokenHash(guestToken)],
+      );
+      if (guest.rows[0]) {
+        const profile = guest.rows[0].profile as Profile;
+        profile.wallet = wallet;
+        await client.query(
+          "UPDATE players SET wallet=$2,token_hash=$3,profile=$4 WHERE id=$1",
+          [profile.id, wallet, tokenHash(token), profile],
+        );
+        return { token, profile: normalizeProfile(profile), linked: true };
+      }
+    }
+    if (!nickname)
+      throw new HttpError(400, "Choose an explorer name for your new account.");
+    const profile = newProfile(nickname, wallet);
+    await createPlayer(client, profile, token);
+    return { token, profile: normalizeProfile(profile), linked: false };
+  });
 }
 export class Transaction {
   constructor(readonly client: pg.PoolClient) {}

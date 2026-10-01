@@ -1,6 +1,6 @@
 # Architecture
 
-One TypeScript codebase contains a Babylon browser client, a Colyseus room server, and shared pure data/rules. PostgreSQL holds durable player profiles, request receipts, append-only PD transactions, capture uniqueness, and match history. There are no wallet libraries or privileged browser reward APIs.
+One TypeScript codebase contains a Babylon browser client, a Colyseus room server, and shared pure data/rules. PostgreSQL holds durable player profiles, request receipts, append-only PD transactions, capture uniqueness, and match history. Wallet sign-in verifies Solana message signatures on the server; the browser uses the wallets' injected providers and holds no reward authority. $WOP conversions debit the PD ledger and queue payouts that only the server signs (see docs/WALLET_AND_WOP.md).
 
 ## Boundaries
 

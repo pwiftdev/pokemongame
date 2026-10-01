@@ -95,8 +95,26 @@ import {
 } from "./ui/data";
 import { adventureNavigation, worldMark } from "./ui/navigation";
 import { hudMarkup } from "./ui/hud";
+import {
+  GUEST_LIMIT_MESSAGE,
+  WALLETS,
+  WOP,
+  isGuest,
+  shortAddress,
+  type WalletKind,
+} from "../../../packages/shared/access";
+import { CHAT, type ChatMessage } from "../../../packages/shared/chat";
+import { createChat, type Chat } from "./ui/chat";
+import {
+  updateWopPreview,
+  walletButtons,
+  wopPanel,
+  type WopStatus,
+} from "./ui/wop";
+import { signInWithWallet } from "./wallet";
 import "./style.css";
 import "./interface.css";
+import "./wallet.css";
 
 type Panel =
   | "explorers"
@@ -110,7 +128,8 @@ type Panel =
   | "arena"
   | "settings"
   | "credits"
-  | "ledger";
+  | "ledger"
+  | "wop";
 type Settings = AudioSettings & {
   quality: string;
   sensitivity: number;
@@ -182,6 +201,25 @@ let queuedAbility:
   | { slot: number; target: string | null; until: number }
   | undefined;
 let combatHint: { text: string; until: number } | undefined;
+/** Saved sessions: a guest token and, separately, a wallet session. */
+const STORE = {
+  guest: "island.token",
+  wallet: "island.walletToken",
+  address: "island.wallet",
+  resume: "island.resume",
+};
+let sessionToken = "";
+let chat: Chat | undefined;
+let wopStatus: WopStatus | undefined;
+let wopLoading = false;
+let lastBoundaryNote = 0;
+const stored = (key: string) => {
+  try {
+    return localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+};
 const environment = import.meta.env as Record<string, string | undefined>;
 const serverUrl =
   environment.VITE_SERVER_URL ||
@@ -294,7 +332,7 @@ function send(kind: string, fields: Record<string, unknown> = {}) {
   } satisfies Command);
 }
 async function api(path: string, init?: RequestInit) {
-  const token = localStorage.getItem("island.token");
+  const token = sessionToken || stored(STORE.guest);
   const response = await fetch(`${serverUrl}${path}`, {
     ...init,
     headers: {
@@ -311,13 +349,132 @@ async function api(path: string, init?: RequestInit) {
     );
   return result;
 }
+const post = (path: string, body: unknown) =>
+  api(path, { method: "POST", body: JSON.stringify(body) });
+
+/** Title-screen buttons follow the saved sessions in this browser. */
+function refreshEntry(ready = !!world) {
+  const address = stored(STORE.address);
+  const walletSession = address && stored(STORE.wallet);
+  const session = document.querySelector<HTMLElement>("#wallet-session");
+  if (session)
+    session.innerHTML = walletSession
+      ? `${button(`${icon("wallet")}<span>Continue as ${esc(shortAddress(address))}</span>`, "wallet-continue", "primary start-button", !ready || connecting)}${button("Sign out", "wallet-signout", "text-button", connecting)}`
+      : "";
+  session?.classList.toggle("hidden", !walletSession);
+  for (const element of document.querySelectorAll<HTMLButtonElement>(
+    "#entry-form [data-action^='wallet:']",
+  ))
+    element.disabled = !ready || connecting;
+  const start = document.querySelector<HTMLButtonElement>("#start");
+  if (start) start.disabled = !ready || connecting;
+  const label = document.querySelector("#start-label");
+  if (label)
+    label.textContent = !ready
+      ? "Preparing the island…"
+      : stored(STORE.guest)
+        ? "Continue as guest"
+        : "Play as guest";
+}
+function refreshAccount() {
+  const pill = document.querySelector<HTMLElement>("#account-pill");
+  if (!pill || !profile) return;
+  pill.classList.toggle("guest", isGuest(profile));
+  pill.innerHTML = profile.wallet
+    ? `${icon("wallet")}<span>${esc(shortAddress(profile.wallet))}</span><small>${WOP.symbol}</small>`
+    : `${icon("wallet")}<span>Guest</span><small>CONNECT WALLET</small>`;
+}
+async function loadWop() {
+  if (!profile?.wallet) return;
+  wopLoading = true;
+  try {
+    wopStatus = (await api("/api/wop")) as WopStatus;
+  } catch (error) {
+    notify(
+      error instanceof Error ? error.message : "Could not reach your wallet.",
+      "error",
+    );
+  } finally {
+    wopLoading = false;
+    if (activePanel === "wop") {
+      renderPanel(false);
+      updateWopPreview(wopStatus);
+    }
+  }
+}
+/** Sign in with a wallet from inside the game. A guest account is upgraded. */
+async function linkWallet(kind: WalletKind) {
+  try {
+    const result = await signInWithWallet(kind, post, {
+      guestToken: isGuest(profile) ? sessionToken : undefined,
+      nickname: profile?.nickname,
+    });
+    localStorage.setItem(STORE.wallet, result.token);
+    localStorage.setItem(STORE.address, result.profile.wallet!);
+    if (result.linked) {
+      localStorage.removeItem(STORE.guest);
+      sessionToken = result.token;
+      profile = result.profile;
+      world.setProfile(result.profile);
+      refreshProfile();
+      notify(
+        `${WALLETS[kind].name} connected. The whole isle is open to you now!`,
+      );
+      if (activePanel === "wop") {
+        renderPanel(false);
+        void loadWop();
+      }
+    } else {
+      notify("This wallet already has an explorer. Loading their journey…");
+      sessionStorage.setItem(STORE.resume, "wallet");
+      window.setTimeout(() => location.reload(), 900);
+    }
+  } catch (error) {
+    notify(
+      error instanceof Error ? error.message : "Wallet sign-in failed.",
+      "error",
+    );
+  }
+}
+async function convertWop() {
+  const input = document.querySelector<HTMLInputElement>("#wop-pd");
+  const pd = Math.floor(Number(input?.value));
+  if (!Number.isSafeInteger(pd) || pd <= 0) {
+    notify(`Enter how much ${currency} to convert.`, "error");
+    return;
+  }
+  const action = document.querySelector<HTMLButtonElement>(
+    '[data-action="wop-convert"]',
+  );
+  if (action) action.disabled = true;
+  try {
+    const result = (await post("/api/wop/convert", {
+      pd,
+      requestId: crypto.randomUUID(),
+    })) as { status: WopStatus };
+    wopStatus = result.status;
+    notify(
+      `${pd.toLocaleString()} ${currency} converted. Your ${WOP.symbol} is on its way to your wallet.`,
+    );
+  } catch (error) {
+    notify(
+      error instanceof Error ? error.message : "Conversion failed.",
+      "error",
+    );
+  } finally {
+    if (activePanel === "wop") {
+      renderPanel(false);
+      updateWopPreview(wopStatus);
+    }
+  }
+}
 
 function shell() {
   app.innerHTML = `
     <div id="title-screen" class="title-screen">
       <header class="title-header"><a class="wordmark" href="#" aria-label="${esc(title)} home">${worldMark()}<span>${esc(title)}<small>${esc(BRAND.subtitle).toUpperCase()}</small></span></a><div class="edition"><span class="live-dot"></span> A SHARED WORLD, YOUR OWN STORY</div>${button(icon("settings"), "panel:settings", "icon-button", false)}</header>
       <main class="title-content"><div class="eyebrow"><span></span> WELCOME TO ${esc(BRAND.island).toUpperCase()}</div><h1><span>WORLD OF</span>POKÉMON</h1><div class="adventure-tags"><span>EXPLORE</span><span>BEFRIEND</span><span>BATTLE</span></div><p>Your Pokémon. Your party. Your adventure.<br />Discover a shared world, one encounter at a time.</p>
-      <div id="entry-form" class="entry-form"><label for="nickname">WHAT SHOULD WE CALL YOU?</label><input id="nickname" maxlength="18" minlength="2" autocomplete="nickname" placeholder="Your explorer name" aria-describedby="guest-note" /><button id="start" class="primary start-button" data-action="start" disabled><span id="start-label">Preparing the island…</span>${icon("arrow")}</button><details class="world-choice"><summary>Choose an island</summary><label for="world-mode">SHARED WORLD</label><select id="world-mode"><option value="auto">Find an island automatically</option><option value="new">Create a fresh island</option><option value="code">Join a friend’s island</option></select><input id="world-code" aria-label="Island code" maxlength="24" placeholder="Paste your friend’s island code" class="hidden" /></details><div id="guest-note" class="guest-note">Your adventure saves automatically in this browser.<br />Keep its data to keep your guest identity.</div></div>
+      <div id="entry-form" class="entry-form"><div id="wallet-session" class="wallet-session hidden"></div><label for="nickname">WHAT SHOULD WE CALL YOU?</label><input id="nickname" maxlength="18" minlength="2" autocomplete="nickname" placeholder="Your explorer name" aria-describedby="guest-note" /><div class="wallet-buttons">${walletButtons("wallet", true)}</div><div class="or-rule"><span>or</span></div><button id="start" class="secondary start-button guest-button" data-action="start" disabled><span id="start-label">Preparing the island…</span>${icon("arrow")}</button><details class="world-choice"><summary>Choose an island</summary><label for="world-mode">SHARED WORLD</label><select id="world-mode"><option value="auto">Find an island automatically</option><option value="new">Create a fresh island</option><option value="code">Join a friend’s island</option></select><input id="world-code" aria-label="Island code" maxlength="24" placeholder="Paste your friend’s island code" class="hidden" /></details><div id="guest-note" class="guest-note">Wallet explorers roam the whole isle, tame Pokémon, duel, chat and convert ${esc(currency)} to ${WOP.symbol}.<br />Guests can explore Hearthwick and Sunpetal Meadows and battle the monsters there.</div></div>
       <div id="loading-status" class="loading-status"><span class="loading-line"></span>Preparing your expedition</div></main>
       <aside class="vista-label"><span class="coordinate">01 / 04</span><span>Hearthwick<small>Every great friendship starts somewhere.</small></span></aside>
       <footer class="title-footer"><span>EXPLORE. BEFRIEND. BELONG.</span><div>${button("Field notes & credits", "panel:credits", "text-button")}<span class="footer-rule"></span><span>DESKTOP ADVENTURE</span></div></footer>
@@ -355,35 +512,80 @@ function shell() {
   const nickname = document.querySelector<HTMLInputElement>("#nickname")!;
   nickname.value = localStorage.getItem("island.nickname") || "";
   nickname.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") void connect();
+    if (event.key === "Enter" && !playing)
+      void connect(stored(STORE.wallet) ? "wallet" : "guest");
   });
+  chat = createChat(document.querySelector("#chat")!, {
+    selfId: () => profile?.id,
+    blocked: () =>
+      isGuest(profile) ? "Connect a wallet to chat · guests can read" : null,
+    send(text) {
+      if (!room || !connected) {
+        notify("Connection lost. Reconnect to continue.", "error");
+        return;
+      }
+      room.send("chat", { text });
+    },
+    error: (message) => notify(message, "error"),
+  });
+  refreshEntry(false);
 }
 
-async function connect() {
+/**
+ * Enter the island as a guest, with the saved wallet session, or by signing in
+ * with a wallet (walletKind).
+ */
+async function connect(
+  access: "guest" | "wallet" = "guest",
+  walletKind?: WalletKind,
+) {
   if (connecting || !world) return;
   const input = document.querySelector<HTMLInputElement>("#nickname")!;
   const nickname =
     input.value.trim() || localStorage.getItem("island.nickname") || "";
-  if (!localStorage.getItem("island.token") && nickname.length < 2) {
+  if (access === "guest" && !stored(STORE.guest) && nickname.length < 2) {
     notify("Choose an explorer name with 2–18 characters.", "error");
     input.focus();
     return;
   }
   connecting = true;
-  const start = document.querySelector<HTMLButtonElement>("#start")!;
-  start.disabled = true;
-  document.querySelector("#start-label")!.textContent =
-    "Connecting to your island…";
+  refreshEntry();
+  document.querySelector("#loading-status")!.innerHTML =
+    `<span class="loading-line"></span>${walletKind ? `Waiting for ${WALLETS[walletKind].name}…` : "Connecting to your island…"}`;
   void audio.start();
   try {
-    const session = await api("/api/session", {
-      method: "POST",
-      body: JSON.stringify({
-        nickname,
-        token: localStorage.getItem("island.token") || undefined,
-      }),
-    });
-    localStorage.setItem("island.token", session.token);
+    let session: { token: string; profile: Profile };
+    if (walletKind) {
+      const result = await signInWithWallet(walletKind, post, {
+        nickname: nickname.length >= 2 ? nickname : undefined,
+        guestToken: stored(STORE.guest) || undefined,
+      });
+      localStorage.setItem(STORE.wallet, result.token);
+      localStorage.setItem(STORE.address, result.profile.wallet!);
+      if (result.linked) localStorage.removeItem(STORE.guest);
+      session = result;
+    } else if (access === "wallet") {
+      session = await post("/api/session", {
+        nickname: nickname.length >= 2 ? nickname : "Explorer",
+        token: stored(STORE.wallet),
+      }).catch((error: Error) => {
+        if (/Session not found|Invalid session/.test(error.message)) {
+          localStorage.removeItem(STORE.wallet);
+          localStorage.removeItem(STORE.address);
+          throw new Error(
+            "Your wallet session has ended. Connect your wallet again.",
+          );
+        }
+        throw error;
+      });
+    } else {
+      session = await post("/api/session", {
+        nickname: nickname.length >= 2 ? nickname : "Explorer",
+        token: stored(STORE.guest) || undefined,
+      });
+      localStorage.setItem(STORE.guest, session.token);
+    }
+    sessionToken = session.token;
     localStorage.setItem("island.nickname", session.profile.nickname);
     profile = session.profile;
     selectedClass = profile?.classId ?? "knight";
@@ -426,6 +628,16 @@ async function connect() {
       world.setSnapshot(next, profile!.id);
       refreshWorld();
     });
+    room.onMessage("chatHistory", (messages: ChatMessage[]) => {
+      chat?.clear();
+      for (const message of messages) chat?.add(message);
+    });
+    room.onMessage("chat", (message: ChatMessage) => {
+      chat?.add(message);
+      world.say(message.playerId, message.text, CHAT.bubbleMs);
+      if (message.playerId !== profile?.id) audio.play("ui");
+    });
+    room.send("chatHistory");
     room.onMessage("event", (event: GameEvent) => {
       if (event.type === "defeat" && event.target === profile?.id)
         selectTarget(null);
@@ -542,19 +754,19 @@ async function connect() {
         ? error.message
         : "The island server is unavailable. Please try again.";
     notify(message, "error");
-    if (/Session not found|Invalid session/.test(message)) {
+    if (
+      access === "guest" &&
+      /Session not found|Invalid session/.test(message)
+    ) {
       const banner = document.querySelector("#connection")!;
       banner.classList.remove("hidden");
       banner.innerHTML = `<span>This browser’s guest identity was not found. Starting a new guest creates a separate collection.</span>${button("Start a new guest", "new-guest", "primary")}`;
     }
   } finally {
     connecting = false;
-    start.disabled = false;
-    document.querySelector("#start-label")!.textContent = localStorage.getItem(
-      "island.token",
-    )
-      ? "Continue your adventure"
-      : "Begin your adventure";
+    refreshEntry();
+    document.querySelector("#loading-status")!.innerHTML =
+      '<span class="live-dot"></span> Your island is ready';
   }
 }
 
@@ -641,6 +853,7 @@ function refreshProfile() {
   }
   document.querySelector("#balance")!.textContent =
     profile.balance.toLocaleString();
+  refreshAccount();
   const active = profile.creatures.find((c) => c.id === profile!.active);
   const level = heroLevel(profile);
   const frames = `${profile.classId}:${profile.nickname}:${level}:${active?.id}:${active?.level}:${active?.evolved}:${active?.species}:${active?.nickname}:${active?.moves.join(",")}`;
@@ -1071,7 +1284,8 @@ const panelNames: Record<Panel, [string, string]> = {
   arena: ["Sunstone arena", "SUNSTONE ARENA"],
   settings: ["Settings", "YOUR PREFERENCES"],
   credits: ["Field notes & credits", "FIELD NOTES & CREDITS"],
-  ledger: ["Your wallet", "YOUR POKEMON DOLLARS"],
+  ledger: ["Your PD", "YOUR POKEMON DOLLARS"],
+  wop: [`${WOP.symbol} wallet`, "WORLD OF POKÉMON TOKEN"],
 };
 function openPanel(panel: Panel) {
   audio.play(
@@ -1084,6 +1298,7 @@ function openPanel(panel: Panel) {
   lastFocus = document.activeElement as HTMLElement;
   activePanel = panel;
   renderPanel();
+  if (panel === "wop") void loadWop();
   if (panel === "ledger")
     void loadRecords("/api/ledger", (data) => {
       latestTransactions = data;
@@ -1155,6 +1370,8 @@ function panelBody(panel: Panel): string {
       return arenaPanel();
     case "ledger":
       return ledgerPanel();
+    case "wop":
+      return wopPanel(profile, wopStatus, wopLoading, currency);
   }
 }
 function renderPanel(focus = true) {
@@ -1185,6 +1402,7 @@ function renderPanel(focus = true) {
       },
     );
   if (panel === "map") updateMapPosition();
+  if (panel === "wop") updateWopPreview(wopStatus);
 }
 function locationNote(id: string) {
   const place = places().find((entry) => entry.id === id);
@@ -1300,7 +1518,7 @@ function arenaPanel() {
   }</div></div>`;
 }
 function ledgerPanel() {
-  return `<div class="wallet-summary">${icon("coin")}<span>${profile?.balance.toLocaleString() || 0}<small>${esc(currency)} AVAILABLE</small></span></div><p class="subtle">${esc(currency)} is an in-game currency earned through your adventures. It has no cash value.</p><div class="section-heading"><h3>Recent transactions</h3></div>${
+  return `<div class="wallet-summary">${icon("coin")}<span>${profile?.balance.toLocaleString() || 0}<small>${esc(currency)} AVAILABLE</small></span></div><p class="subtle">${esc(currency)} is earned through your adventures. Wallet explorers holding ${WOP.minHolding.toLocaleString("en-US")} ${WOP.symbol} can convert it to ${WOP.symbol}.</p>${button(`${icon("wallet")} Open ${WOP.symbol} wallet`, "panel:wop", "secondary compact")}<div class="section-heading"><h3>Recent transactions</h3></div>${
     latestTransactions
       .map((raw) => {
         const row = raw as Record<string, unknown>;
@@ -1368,8 +1586,27 @@ async function handleAction(action: string) {
       send("swap", { slot: Number(value) });
       break;
     case "start":
+      await connect("guest");
+      break;
     case "reconnect":
-      await connect();
+      await connect(isGuest(profile) ? "guest" : "wallet");
+      break;
+    case "wallet":
+      await connect("wallet", value as WalletKind);
+      break;
+    case "wallet-continue":
+      await connect("wallet");
+      break;
+    case "wallet-signout":
+      localStorage.removeItem(STORE.wallet);
+      localStorage.removeItem(STORE.address);
+      refreshEntry();
+      break;
+    case "wallet-link":
+      await linkWallet(value as WalletKind);
+      break;
+    case "wop-convert":
+      await convertWop();
       break;
     case "panel":
       document.querySelector("#caught-card")?.remove();
@@ -1517,11 +1754,10 @@ async function handleAction(action: string) {
       send("queue", { join: !snapshot?.queue.includes(profile?.id || "") });
       break;
     case "new-guest":
-      localStorage.removeItem("island.token");
+      localStorage.removeItem(STORE.guest);
       document.querySelector("#connection")!.classList.add("hidden");
-      document.querySelector("#start-label")!.textContent =
-        "Begin your adventure";
-      await connect();
+      refreshEntry();
+      await connect("guest");
       break;
     case "greet-companion": {
       const self = snapshot?.players.find((p) => p.id === profile?.id);
@@ -1613,6 +1849,27 @@ app.addEventListener("input", (event) => {
 window.addEventListener(
   "keydown",
   (event) => {
+    if (chat?.open) {
+      if (
+        event.target !== chat.input &&
+        ["Escape", "Enter"].includes(event.key)
+      ) {
+        event.preventDefault();
+        chat.close();
+      }
+      return;
+    }
+    if (
+      event.key === "Enter" &&
+      playing &&
+      !activePanel &&
+      !binding &&
+      !(event.target as HTMLElement).matches("input,select,textarea,button")
+    ) {
+      event.preventDefault();
+      chat?.show();
+      return;
+    }
     if (binding) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -1758,6 +2015,11 @@ void startup
       onTame() {
         send("tame", { target, item: "capsule" });
       },
+      onBoundary() {
+        if (Date.now() - lastBoundaryNote < 6000) return;
+        lastBoundaryNote = Date.now();
+        notify(GUEST_LIMIT_MESSAGE);
+      },
     }),
   )
   .then(async (instance) => {
@@ -1765,14 +2027,13 @@ void startup
     await interfaceReady;
     saveSettings();
     finishLoading();
-    document.querySelector<HTMLButtonElement>("#start")!.disabled = false;
-    document.querySelector("#start-label")!.textContent = localStorage.getItem(
-      "island.token",
-    )
-      ? "Continue your adventure"
-      : "Begin your adventure";
+    refreshEntry(true);
     document.querySelector("#loading-status")!.innerHTML =
       '<span class="live-dot"></span> Your island is ready';
+    if (sessionStorage.getItem(STORE.resume) && stored(STORE.wallet)) {
+      sessionStorage.removeItem(STORE.resume);
+      void connect("wallet");
+    }
   })
   .catch((error) => {
     world?.dispose();
@@ -1789,6 +2050,16 @@ void startup
   });
 setInterval(refreshCombatControls, 80);
 
+document.addEventListener("input", (event) => {
+  if ((event.target as HTMLElement).id === "wop-pd")
+    updateWopPreview(wopStatus);
+});
+document.addEventListener("keydown", (event) => {
+  if ((event.target as HTMLElement).id === "wop-pd" && event.key === "Enter") {
+    event.preventDefault();
+    void convertWop();
+  }
+});
 document.addEventListener("change", (event) => {
   const element = event.target as HTMLSelectElement;
   if (element.dataset.learnCreature)

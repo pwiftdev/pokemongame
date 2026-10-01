@@ -18,7 +18,7 @@ Shared species/items/quests/abilities/locations and pure rules are used by both 
 - Ledger edits/deletes are rejected by a trigger. Balance reconciliation is tested. Concurrent purchases and captures, transaction rollback, replay, post-commit delivery failure, and ambiguous COMMIT acknowledgement are tested.
 - Match completion uses consistent lock order, canonical result recovery, bounded daily/opponent rewards, and no payout for surrender/disconnect.
 - New token sessions fence old connections. Interrupted connections have a bounded grace period and disconnect-forfeit cleanup.
-- No wallet, payment, privileged browser reward, free-text chat, or production admin command is present.
+- No payment, privileged browser reward or production admin command is present. Wallet sign-in, $WOP conversion and filtered room chat were added later; see docs/WALLET_AND_WOP.md.
 
 ## Issues found and fixed
 
