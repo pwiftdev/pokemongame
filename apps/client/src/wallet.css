@@ -1,0 +1,358 @@
+/* Wallet sign-in, $WOP panel and island chat. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Title screen */
+.wallet-session {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 18px;
+}
+.wallet-session.hidden {
+  display: none;
+}
+.wallet-session .start-button {
+  margin-top: 0;
+}
+.wallet-session .text-button {
+  align-self: flex-end;
+}
+.wallet-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+.wallet-button {
+  justify-content: flex-start;
+  padding: 12px 14px;
+  font-size: 16px;
+}
+.wallet-button .icon {
+  width: 20px;
+  flex-shrink: 0;
+}
+.wallet-phantom:not(:disabled) {
+  background: #7b61e8;
+  box-shadow:
+    inset 0 3px 0 #a897ff,
+    inset 0 -4px 0 #5338c4,
+    0 4px 0 var(--wop-ink);
+}
+.wallet-solflare:not(:disabled) {
+  color: var(--wop-ink);
+  background: var(--wop-yellow);
+  box-shadow:
+    inset 0 3px 0 var(--wop-yellow-l),
+    inset 0 -4px 0 var(--wop-yellow-d),
+    0 4px 0 var(--wop-ink);
+}
+.or-rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 6px;
+  color: var(--wop-text-3);
+  font: 400 11px var(--wop-font-label);
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+}
+.or-rule::before,
+.or-rule::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  background: var(--wop-line);
+}
+.guest-button {
+  height: 52px;
+  font-size: 17px;
+}
+
+/* HUD account pill */
+.account-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 8px 14px;
+  border: 2px solid var(--wop-ink);
+  color: var(--wop-text);
+  background: #5a46c8;
+  box-shadow:
+    inset 0 3px #8b78ff,
+    inset 0 -4px #3d2d99,
+    0 4px var(--wop-ink);
+  font: 700 15px var(--wop-font-ui);
+}
+.account-pill small {
+  font: 700 11px var(--wop-font-label);
+  opacity: 0.85;
+}
+.account-pill.guest {
+  background: var(--wop-panel);
+  box-shadow: var(--wop-raised);
+}
+.account-pill.guest small {
+  color: var(--wop-yellow);
+  opacity: 1;
+}
+.account-pill:empty {
+  display: none;
+}
+
+/* $WOP panel */
+.wop-hero {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: var(--wop-deep);
+  border: 2px solid var(--wop-line);
+}
+.wop-hero > .icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  color: var(--wop-yellow);
+}
+.wop-hero h3 {
+  margin: 4px 0 6px;
+  font: 700 24px var(--wop-font-display);
+  overflow-wrap: anywhere;
+}
+.wop-hero p {
+  margin: 0;
+  color: var(--wop-text-2);
+}
+.panel-wop .wallet-buttons {
+  margin: 0 0 12px;
+}
+.wop-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.wop-stats > div {
+  padding: 12px;
+  background: var(--wop-deep);
+  border: 2px solid var(--wop-line);
+}
+.wop-stats small {
+  display: block;
+  color: var(--wop-text-3);
+  font: 400 11px var(--wop-font-label);
+  letter-spacing: 1px;
+}
+.wop-stats strong {
+  font: 700 24px var(--wop-font-display);
+  overflow-wrap: anywhere;
+}
+.wop-convert {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.wop-convert label {
+  color: var(--wop-text-2);
+  font: 400 11px var(--wop-font-label);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+.wop-convert > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wop-convert input {
+  width: 180px;
+  padding: 12px;
+  color: var(--wop-text);
+  background: var(--wop-deep);
+  border: 2px solid var(--wop-line);
+  font: 700 18px var(--wop-font-ui);
+}
+.wop-convert output {
+  color: var(--wop-yellow);
+  font: 700 18px var(--wop-font-ui);
+}
+.wop-convert .primary {
+  justify-self: start;
+}
+.wop-status.sent,
+.wop-status.sent a {
+  color: var(--wop-green);
+}
+.wop-status.pending,
+.wop-status.processing {
+  color: var(--wop-yellow);
+}
+.wop-status.failed {
+  color: var(--wop-red-l);
+}
+
+/* Chat */
+/* Right side, between the minimap and the menu buttons. */
+.chat {
+  position: absolute;
+  right: var(--wop-hud-x);
+  bottom: 206px;
+  width: min(var(--rail), 340px);
+  pointer-events: none;
+  z-index: 5;
+}
+@container game-hud (max-height: 650px) {
+  /* The menu buttons move up beside the minimap on short screens. */
+  .chat {
+    bottom: 24px;
+  }
+  .chat-log {
+    max-height: 96px;
+  }
+}
+.chat-log {
+  max-height: 150px;
+  overflow: hidden;
+  padding: 6px 9px;
+  font-size: 14px;
+  line-height: 1.45;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.chat-log:empty {
+  display: none;
+}
+.chat.recent .chat-log,
+.chat.open .chat-log {
+  opacity: 1;
+  transition: opacity 0.15s;
+}
+.chat.open .chat-log {
+  max-height: 220px;
+  overflow-y: auto;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--wop-deep) 80%, transparent);
+}
+.chat-line {
+  margin: 0;
+  color: var(--wop-text);
+  text-shadow: 2px 2px 0 var(--wop-ink);
+  overflow-wrap: anywhere;
+}
+.chat-line strong {
+  margin-right: 6px;
+  color: var(--wop-cyan);
+}
+.chat-line strong::after {
+  content: ":";
+}
+.chat-line.self strong {
+  color: var(--wop-yellow);
+}
+.chat-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  pointer-events: auto;
+}
+.chat-form.hidden {
+  display: none;
+}
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 10px;
+  color: var(--wop-text);
+  background: var(--wop-deep);
+  border: 2px solid var(--wop-hi);
+  font: 500 15px var(--wop-font-ui);
+}
+.chat-form input:disabled {
+  color: var(--wop-text-3);
+  border-color: var(--wop-line);
+}
+.chat-form input::placeholder {
+  color: var(--wop-text-3);
+}
+.chat-hint {
+  margin-top: 4px;
+  text-align: right;
+  color: var(--wop-text-3);
+  font-size: 12px;
+  text-shadow: 2px 2px 0 var(--wop-ink);
+}
+.chat.open .chat-hint {
+  display: none;
+}
+
+/* Speech bubbles above players */
+.chat-bubble {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 240px;
+  padding: 7px 11px;
+  color: var(--wop-ink);
+  background: #fff;
+  border: 2px solid var(--wop-ink);
+  box-shadow: 0 3px 0 var(--wop-ink);
+  font: 600 14px/1.35 var(--wop-font-ui);
+  text-align: center;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  will-change: transform;
+}
+.chat-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-right: 2px solid var(--wop-ink);
+  border-bottom: 2px solid var(--wop-ink);
+  transform: translateX(-50%) rotate(45deg);
+}
+.chat-bubble.hidden {
+  display: none;
+}
+.chat-bubble.pop {
+  animation: bubble-pop 0.18s ease-out;
+}
+@keyframes bubble-pop {
+  from {
+    scale: 0.7;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-bubble.pop {
+    animation: none;
+  }
+}
+
+/* Keep the sign-in choices above the fold on shorter screens. */
+@media (max-height: 960px) {
+  .title-content {
+    top: 14%;
+  }
+  .title-content h1 {
+    margin: 14px 0 18px;
+  }
+  .title-content > p {
+    display: none;
+  }
+  .entry-form {
+    margin-top: 6px;
+  }
+}

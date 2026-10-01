@@ -16,7 +16,11 @@ import {
   migrate,
   pool,
   session,
+  walletSession,
 } from "./db.js";
+import { createChallenge, redeemChallenge, validAddress } from "./wallet.js";
+import { requestConversion, wopStatus } from "./wop.js";
+import { startWopPayouts } from "./wop-payout.js";
 import { IslandRoom } from "./room.js";
 import { RateLimit } from "./commands.js";
 
@@ -54,22 +58,68 @@ app.get(
     });
   }),
 );
+const nickname = z
+  .string()
+  .trim()
+  .min(2)
+  .max(18)
+  .regex(/^[\p{L}\p{N} _-]+$/u);
 app.post(
   "/api/session",
   asyncRoute(async (req, res) => {
     const input = z
       .object({
-        nickname: z
-          .string()
-          .trim()
-          .min(2)
-          .max(18)
-          .regex(/^[\p{L}\p{N} _-]+$/u),
+        nickname,
         token: z.string().length(64).optional(),
       })
       .strict()
       .parse(req.body);
     res.json(await session(input.nickname, input.token));
+  }),
+);
+const walletAddress = z.string().refine(validAddress, "Invalid wallet.");
+const walletLimit = new RateLimit(20, 60000);
+app.use("/api/wallet", (req, res, next) => {
+  if (!walletLimit.allow(req.ip ?? "local")) {
+    res
+      .status(429)
+      .json({ message: "Too many sign-in attempts. Please wait." });
+    return;
+  }
+  next();
+});
+app.post(
+  "/api/wallet/challenge",
+  asyncRoute(async (req, res) => {
+    const input = z.object({ address: walletAddress }).strict().parse(req.body);
+    const origin =
+      req.headers.origin ||
+      process.env.PUBLIC_ORIGIN ||
+      `${req.protocol}://${req.get("host") ?? "localhost"}`;
+    res.json(createChallenge(input.address, origin));
+  }),
+);
+app.post(
+  "/api/wallet/session",
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({
+        address: walletAddress,
+        nonce: z.string().regex(/^[a-f0-9]{32}$/),
+        signature: z.string().max(200),
+        nickname: nickname.optional(),
+        guestToken: z.string().length(64).optional(),
+      })
+      .strict()
+      .parse(req.body);
+    redeemChallenge(input.address, input.nonce, input.signature);
+    const result = await walletSession(
+      input.address,
+      input.nickname,
+      input.guestToken,
+    );
+    if (result.linked) IslandRoom.reloadProfile(result.profile.id);
+    res.json(result);
   }),
 );
 const identity = (req: express.Request) =>
@@ -84,6 +134,35 @@ app.get(
   "/api/matches",
   asyncRoute(async (req, res) => {
     res.json(await history((await identity(req)).id));
+  }),
+);
+app.get(
+  "/api/wop",
+  asyncRoute(async (req, res) => {
+    res.json(await wopStatus(await identity(req)));
+  }),
+);
+app.post(
+  "/api/wop/convert",
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({
+        pd: z.number().int().positive().max(1_000_000),
+        requestId: z.string().uuid(),
+      })
+      .strict()
+      .parse(req.body);
+    const profile = await identity(req);
+    const result = await requestConversion(
+      profile,
+      input.pd,
+      `wop-convert:${input.requestId}`,
+    );
+    IslandRoom.reloadProfile(profile.id);
+    res.json({
+      applied: result.applied,
+      status: await wopStatus(result.profile),
+    });
   }),
 );
 app.get(
@@ -126,6 +205,7 @@ const server = new Server({
   }),
 });
 server.define("island", IslandRoom);
+await startWopPayouts((id) => IslandRoom.reloadProfile(id));
 const port = Number(process.env.PORT ?? 2567);
 await server.listen(port, "0.0.0.0", undefined, () => protectHttp(http));
 console.log(`${BRAND.title} server listening at http://localhost:${port}`);

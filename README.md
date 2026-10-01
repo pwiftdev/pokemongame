@@ -1,6 +1,6 @@
 # World of Pokémon — The Wildlight Isles
 
-A desktop-browser fantasy RPG on Aster Isle: eight regions, four armed character classes, animated wildlife, hostile monsters and Pokémon companions. Babylon.js renders the island; a Colyseus server owns movement, combat, taming, quests, and currency; PostgreSQL stores progress. PD is exclusively in-game currency.
+A desktop-browser fantasy RPG on Aster Isle: eight regions, four armed character classes, animated wildlife, hostile monsters and Pokémon companions. Babylon.js renders the island; a Colyseus server owns movement, combat, taming, quests, and currency; PostgreSQL stores progress. Players sign in with a Phantom or Solflare wallet, or play a limited guest mode. Wallet players holding 200,000 $WOP can convert in-game PD to $WOP on Solana.
 
 The [Pokémon overhaul](docs/POKEMON_OVERHAUL.md) adds 51 species, 91 moves, real typing, individual stats, companion orders and swapping, living habitats, a Pokédex and capture/evolution sequences. That document records the design, verification and unfinished asset limits.
 
@@ -42,6 +42,7 @@ npm run test:connectivity
 npm run test:rooms
 npm run test:restart
 npm run test:gameplay
+npm run test:wallet
 npm run test:first-session
 npm run test:economy
 npm run test:visual
@@ -65,7 +66,7 @@ npm start
 
 The Node process serves the production browser bundle and WebSockets on port 2567. Set `PORT`, `DATABASE_URL`, and `ALLOWED_ORIGINS`. If frontend and server use different origins, set `VITE_SERVER_URL` before building. Place a TLS reverse proxy in front of Node. See docs/DEPLOYMENT.md for routing, backups, and hosting limits.
 
-Source is organized into apps/client, apps/server, and packages/shared. See GAME_GUIDE.md for rules, ARCHITECTURE.md for boundaries, and ASSET_MANIFEST.json for asset provenance. The multiplayer test site is [live on Heroku](https://pokemon-dollars-play-7ffdf663f528.herokuapp.com/). No blockchain integration is included.
+Source is organized into apps/client, apps/server, and packages/shared. See GAME_GUIDE.md for rules, ARCHITECTURE.md for boundaries, and ASSET_MANIFEST.json for asset provenance. The multiplayer test site is [live on Heroku](https://pokemon-dollars-play-7ffdf663f528.herokuapp.com/). Wallet sign-in, guest limits, $WOP conversion and chat are described in [docs/WALLET_AND_WOP.md](docs/WALLET_AND_WOP.md).
 
 The RPG expansion is documented in docs/RPG_EXPANSION_AUDIT.md. Pokémon assets have separate rights from the CC0 scenery and characters; see THIRD_PARTY_NOTICES.md. No paid assets were purchased.
 

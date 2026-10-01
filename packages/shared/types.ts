@@ -30,6 +30,8 @@ export interface Creature {
   dataVersion?: number;
 }
 export interface Profile {
+  /** Solana wallet address; absent for guest accounts. */
+  wallet?: string;
   appearance?: Appearance;
   classId?: ClassId;
   heroHp?: number;

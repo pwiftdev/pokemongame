@@ -71,6 +71,7 @@ import {
 } from "../../../packages/shared/combat-rules";
 import { createThreatMarker } from "./render/threat";
 import { createWorldLabel } from "./render/labels";
+import { guestStep, isGuest } from "../../../packages/shared/access";
 import { createCameraCollision } from "./render/camera-collision";
 import {
   turnTowards,
@@ -102,6 +103,8 @@ export interface GameWorld {
   /** Floating reward text above the local hero. */
   floatSelf: (text: string, kind: FloatKind) => void;
   cancelPrediction: () => void;
+  /** Show a chat bubble above a player. */
+  say: (playerId: string, text: string, ms: number) => void;
   setSettings: (settings: WorldSettings) => void;
   getPosition: () => { x: number; z: number };
   handleEvent: (event: GameEvent) => void;
@@ -123,6 +126,8 @@ interface Callbacks {
   ) => void;
   onJump?: () => void;
   onListener?: (point: { x: number; z: number }, alpha: number) => void;
+  /** A guest walked into the edge of the guest regions. */
+  onBoundary?: () => void;
 }
 interface Actor {
   visual: CreatureActor;
@@ -281,6 +286,7 @@ export async function createWorld(
     selfId = "",
     targetId: string | null = null,
     settings: WorldSettings = {},
+    guest = false,
     disposed = false;
   let predictedDash: DashState | undefined;
   let position = { ...WORLD.spawn },
@@ -826,7 +832,7 @@ export async function createWorld(
       if (predictedDash && predictedDash.until <= sharedNow)
         predictedDash = undefined;
       const dash = predictedDash ?? self?.view.dash;
-      position =
+      const next =
         dash && dash.until > sharedNow
           ? dashStep(
               position,
@@ -841,6 +847,9 @@ export async function createWorld(
               dz * speed * dt,
               collisionCreatures,
             );
+      position = guest ? guestStep(position, next) : next;
+      if (guest && (position.x !== next.x || position.z !== next.z))
+        callbacks.onBoundary?.();
       velocity.x = (position.x - previous.x) / Math.max(0.001, dt);
       velocity.z = (position.z - previous.z) / Math.max(0.001, dt);
       if (
@@ -1101,6 +1110,12 @@ export async function createWorld(
         root.position.y + actor.nameHeight,
         root.position.z,
       );
+      overlay.anchorBubble(
+        id,
+        root.position.x,
+        root.position.y + actor.nameHeight + 0.35,
+        root.position.z,
+      );
       if (id !== selfId) {
         root.position = Vector3.Lerp(
           root.position,
@@ -1325,10 +1340,12 @@ export async function createWorld(
           disposeVisual(actor.trainer);
           disposeVisual(actor.companion);
           combatEffects.charge(pid, Vector3.Zero(), undefined, 0);
+          overlay.removeBubble(pid);
           players.delete(pid);
         }
     },
     setProfile(value) {
+      guest = isGuest(value);
       storyWorld.setProfile(value);
       const active = value.creatures.find(
         (creature) => creature.id === value.active,
@@ -1399,6 +1416,9 @@ export async function createWorld(
           text,
           kind,
         );
+    },
+    say(playerId, text, ms) {
+      overlay.say(playerId, text, ms);
     },
     cancelPrediction() {
       if (!predicted || time - predicted.at > 0.8) return;

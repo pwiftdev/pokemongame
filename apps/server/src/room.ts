@@ -58,6 +58,19 @@ import {
 } from "../../../packages/shared/encounters.js";
 import { WAYSTONES, isSafeArea } from "../../../packages/shared/regions.js";
 import {
+  GUEST_LIMIT_MESSAGE,
+  WALLET_COMMANDS,
+  guestCanReach,
+  guestStep,
+  isGuest,
+} from "../../../packages/shared/access.js";
+import {
+  CHAT,
+  cleanChat,
+  type ChatMessage,
+} from "../../../packages/shared/chat.js";
+import { z } from "zod";
+import {
   heroHp,
   heroLevel,
   heroMaxHp,
@@ -255,6 +268,7 @@ export interface Duel extends DuelView {
   reason?: string;
 }
 const sessions = new Map<string, { room: IslandRoom; sessionId: string }>();
+const chatSchema = z.object({ text: z.string().max(400) }).strict();
 function threatShares(table: Map<string, number>) {
   const top = Math.max(1, ...table.values());
   return Object.fromEntries(
@@ -291,6 +305,10 @@ export class IslandRoom extends Room {
   }
   private serial: Promise<unknown> = Promise.resolve();
   private commandLimit = new RateLimit(18, 1000);
+  private chatLimit = new RateLimit(5, 10000);
+  private chatLog: ChatMessage[] = [];
+  private lastChat = new Map<string, string>();
+  private chatHistorySent = new Set<string>();
   private movementLimit = new RateLimit(45, 1000);
   private pendingTicks = false;
   private lastSnapshot = 0;
@@ -365,6 +383,14 @@ export class IslandRoom extends Room {
         retreatSince: 0,
       });
     }
+    this.onMessage("chat", (client, raw) => this.chat(client, raw));
+    // Clients ask once their handlers are registered; join-time sends can be lost.
+    this.onMessage("chatHistory", (client) => {
+      if (!this.chatHistorySent.has(client.sessionId)) {
+        this.chatHistorySent.add(client.sessionId);
+        safeSend(client, "chatHistory", this.chatLog);
+      }
+    });
     this.onMessage("command", (client, raw) => {
       const p = [...this.players.values()].find(
         (p) => p.client.sessionId === client.sessionId,
@@ -438,6 +464,56 @@ export class IslandRoom extends Room {
         }),
       );
     }, 60000);
+  }
+  private chat(client: Client, raw: unknown) {
+    const p = [...this.players.values()].find(
+      (p) => p.client.sessionId === client.sessionId,
+    );
+    if (!p || !isCurrent(p, this)) return;
+    const parsed = chatSchema.safeParse(raw);
+    if (!parsed.success) return;
+    if (isGuest(p.profile)) {
+      safeSend(client, "error", {
+        message: "Connect a Phantom or Solflare wallet to chat.",
+      });
+      return;
+    }
+    const clean = cleanChat(parsed.data.text);
+    if (!clean.ok) {
+      safeSend(client, "error", { message: clean.reason });
+      return;
+    }
+    if (
+      !this.chatLimit.allow(p.profile.id) ||
+      this.lastChat.get(p.profile.id) === clean.text.toLowerCase()
+    ) {
+      safeSend(client, "error", { message: "Slow down a little in chat." });
+      return;
+    }
+    this.lastChat.set(p.profile.id, clean.text.toLowerCase());
+    const message: ChatMessage = {
+      id: randomUUID(),
+      playerId: p.profile.id,
+      nickname: p.profile.nickname,
+      text: clean.text,
+      time: Date.now(),
+    };
+    this.chatLog.push(message);
+    if (this.chatLog.length > CHAT.history) this.chatLog.shift();
+    this.broadcast("chat", message);
+  }
+  /** Re-read a profile changed outside the room, such as a wallet link or $WOP conversion. */
+  static reloadProfile(id: string) {
+    const current = sessions.get(id);
+    const room = current?.room;
+    const p = room?.players.get(id);
+    if (!room || !p) return;
+    room.serial = room.serial
+      .then(async () => {
+        if (isCurrent(p, room) && p.online)
+          await room.update(p, `sync:${randomUUID()}`, () => {});
+      })
+      .catch((error) => console.error("Profile reload failed", error));
   }
   private static admission = new RateLimit(12, 60000);
   private static creations = new RateLimit(3, 60000);
@@ -584,6 +660,9 @@ export class IslandRoom extends Room {
           this.players.delete(p.profile.id);
         if (isCurrent(p, this)) sessions.delete(p.profile.id);
         this.commandLimit.remove(client.sessionId);
+        this.chatLimit.remove(p.profile.id);
+        this.chatHistorySent.delete(client.sessionId);
+        this.lastChat.delete(p.profile.id);
         this.movementLimit.remove(client.sessionId);
       })
       .catch((error) => console.error("Departure persistence failed", error));
@@ -781,6 +860,13 @@ export class IslandRoom extends Room {
     };
   }
   private async command(p: Player, c: Exclude<ValidCommand, { kind: "move" }>) {
+    if (
+      isGuest(p.profile) &&
+      (WALLET_COMMANDS as readonly string[]).includes(c.kind)
+    )
+      throw new Error(
+        "Connect a Phantom or Solflare wallet to tame, trade, evolve and duel.",
+      );
     if (c.kind === "dexReward") {
       const reward = DEX_REWARDS.find((reward) => reward.count === c.count);
       await this.update(p, c.requestId, async (profile, tx) => {
@@ -933,6 +1019,8 @@ export class IslandRoom extends Room {
       const destination = WAYSTONES.find((w) => w.id === c.destination);
       if (!destination || !p.profile.waystones?.includes(destination.id))
         throw new Error("Discover that waystone first.");
+      if (isGuest(p.profile) && !guestCanReach(destination.x, destination.z))
+        throw new Error(GUEST_LIMIT_MESSAGE);
       p.x = destination.x;
       p.z = destination.z;
       p.dx = 0;
@@ -2087,6 +2175,10 @@ export class IslandRoom extends Room {
     }
     w.rewardPending = false;
   }
+  /** Guests stay inside the starting regions. */
+  private limitStep(p: Player, next: { x: number; z: number }) {
+    return isGuest(p.profile) ? guestStep(p, next) : next;
+  }
   private async tick() {
     const now = Date.now();
     for (const p of this.players.values()) {
@@ -2106,11 +2198,14 @@ export class IslandRoom extends Room {
       }
       if (p.dash && p.dash.until <= now) p.dash = undefined;
       if (p.dash && p.stunUntil <= now) {
-        const next = dashStep(
+        const next = this.limitStep(
           p,
-          p.dash,
-          Math.min(0.05, (p.dash.until - now) / 1000),
-          this.wilds.values(),
+          dashStep(
+            p,
+            p.dash,
+            Math.min(0.05, (p.dash.until - now) / 1000),
+            this.wilds.values(),
+          ),
         );
         const duel = this.duels.get(p.duelId ?? "");
         if (
@@ -2128,12 +2223,15 @@ export class IslandRoom extends Room {
             (p.sprint ? WORLD.sprint : WORLD.speed) *
             (p.slowUntil > now ? 0.55 : 1) *
             0.05;
-          const next = moveAmongCreatures(
-            p.x,
-            p.z,
-            (p.dx / Math.max(1, magnitude)) * speed,
-            (p.dz / Math.max(1, magnitude)) * speed,
-            this.wilds.values(),
+          const next = this.limitStep(
+            p,
+            moveAmongCreatures(
+              p.x,
+              p.z,
+              (p.dx / Math.max(1, magnitude)) * speed,
+              (p.dz / Math.max(1, magnitude)) * speed,
+              this.wilds.values(),
+            ),
           );
           const duel = this.duels.get(p.duelId ?? "");
           if (

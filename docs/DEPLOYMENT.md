@@ -54,7 +54,7 @@ heroku pg:backups:schedules --app pokemon-dollars-play
 
 ## Configuration
 
-Set DATABASE_URL, PORT (2567 default), and ALLOWED_ORIGINS to exact permitted origins. A same-origin production browser uses its own origin; a separately hosted frontend needs VITE_SERVER_URL set at build time. Keep database credentials on the server. No admin/reward command is exposed.
+Set DATABASE*URL, PORT (2567 default), and ALLOWED_ORIGINS to exact permitted origins. $WOP conversion and payouts use the `WOP*\*`and`SOLANA_RPC_URL`variables in docs/WALLET_AND_WOP.md; keep`WOP_TREASURY_SECRET` in Heroku config vars only. A same-origin production browser uses its own origin; a separately hosted frontend needs VITE_SERVER_URL set at build time. Keep database credentials on the server. No admin/reward command is exposed.
 
 A reverse proxy must terminate TLS and forward all HTTP routes plus WebSocket upgrades to the Node service. Example Nginx location inside your own TLS-enabled server block:
 

@@ -41,6 +41,12 @@ interface Plate {
   key: string;
   visible: boolean;
 }
+interface Bubble {
+  element: HTMLElement;
+  anchor: Vector3;
+  until: number;
+  anchored: boolean;
+}
 interface Floater {
   element: HTMLElement;
   anchor: Vector3;
@@ -69,6 +75,7 @@ export function createCombatOverlay(
   layer.addEventListener("contextmenu", pick);
   const plates = new Map<string, Plate>();
   const floaters: Floater[] = [];
+  const bubbles = new Map<string, Bubble>();
   const projected = new Vector3();
   let camera: Camera | undefined;
   let lastFloatSide = 1;
@@ -154,6 +161,33 @@ export function createCombatOverlay(
       plates.get(id)?.root.remove();
       plates.delete(id);
     },
+    /** Show a chat bubble above an entity for a few seconds. */
+    say(id: string, text: string, ms: number) {
+      let bubble = bubbles.get(id);
+      if (!bubble) {
+        const element = document.createElement("div");
+        element.className = "chat-bubble hidden";
+        layer.append(element);
+        bubble = { element, anchor: new Vector3(), until: 0, anchored: false };
+        bubbles.set(id, bubble);
+      }
+      bubble.element.textContent = text;
+      bubble.element.classList.remove("pop");
+      void bubble.element.offsetWidth;
+      bubble.element.classList.add("pop");
+      bubble.until = performance.now() + ms;
+    },
+    /** Keep an entity's chat bubble above its head. */
+    anchorBubble(id: string, x: number, y: number, z: number) {
+      const bubble = bubbles.get(id);
+      if (!bubble) return;
+      bubble.anchor.set(x, y, z);
+      bubble.anchored = true;
+    },
+    removeBubble(id: string) {
+      bubbles.get(id)?.element.remove();
+      bubbles.delete(id);
+    },
     /** Floating combat text rising from a world position. */
     float(
       position: Vector3,
@@ -194,6 +228,24 @@ export function createCombatOverlay(
         plate.root.style.transform = `translate3d(${point.x.toFixed(1)}px, ${point.y.toFixed(1)}px, 0) translate(-50%, -100%) scale(${scale.toFixed(3)})`;
         plate.root.style.zIndex = String(1000 - Math.round(point.depth * 10));
       }
+      const now = performance.now();
+      for (const [id, bubble] of bubbles) {
+        if (now >= bubble.until) {
+          bubble.element.remove();
+          bubbles.delete(id);
+          continue;
+        }
+        const point = bubble.anchored ? project(bubble.anchor) : undefined;
+        const hidden = !point || point.depth > 48;
+        bubble.element.classList.toggle("hidden", hidden);
+        if (!point || hidden) continue;
+        const fade = Math.min(1, (bubble.until - now) / 400);
+        bubble.element.style.opacity = fade.toFixed(2);
+        bubble.element.style.transform = `translate3d(${point.x.toFixed(1)}px, ${(point.y - 34).toFixed(1)}px, 0) translate(-50%, -100%)`;
+        bubble.element.style.zIndex = String(
+          2000 - Math.round(point.depth * 10),
+        );
+      }
       for (let i = floaters.length - 1; i >= 0; i--) {
         const floater = floaters[i];
         floater.age += dt;
@@ -217,6 +269,7 @@ export function createCombatOverlay(
     dispose() {
       layer.remove();
       plates.clear();
+      bubbles.clear();
       floaters.length = 0;
     },
   };

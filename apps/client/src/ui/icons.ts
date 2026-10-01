@@ -19,6 +19,9 @@ const paths: Record<string, string> = {
   settings:
     '<circle cx="12" cy="12" r="4"/><path d="m9 3 1-2h4l1 2 3 2 2 1 2 4-2 2v3l-2 2-1 3-4 2-2-2H8l-2-2-3-1-2-4 2-2V8l2-2 1-3Z"/>',
   arrow: '<path d="M4 12h16m-6-6 6 6-6 6"/>',
+  wallet:
+    '<path d="M17 7V4H5a2 2 0 0 0 0 4h15v12H5a2 2 0 0 1-2-2V6"/><path d="M16 14h.01"/>',
+  chat: '<path d="M4 4h16v12H9l-5 4Z"/><path d="M8 9h8m-8 3h5"/>',
   close: '<path d="m6 6 12 12M6 18 18 6"/>',
   coin: '<circle cx="12" cy="12" r="9"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/>',
   heart: '<path d="M12 21 3 12C-2 5 8 0 12 7c4-7 14-2 9 5Z"/>',
