@@ -292,6 +292,124 @@ export const CLASSES: Record<ClassId, HeroClass> = {
     ],
   },
 };
+const progression: Record<ClassId, Record<string, number>> = {
+  knight: {
+    slash: 1,
+    "shield-charge": 2,
+    "shield-strike": 3,
+    bulwark: 4,
+    challenge: 5,
+    sweep: 6,
+    rally: 8,
+    "heroic-throw": 10,
+  },
+  mage: {
+    firebolt: 1,
+    blink: 2,
+    frostbolt: 3,
+    barrier: 4,
+    icelance: 5,
+    counterspell: 6,
+    meteor: 8,
+    "arcane-barrage": 10,
+  },
+  rogue: {
+    stab: 1,
+    vanish: 2,
+    venom: 3,
+    shadowstep: 4,
+    eviscerate: 5,
+    kick: 6,
+    evasion: 7,
+    ambush: 8,
+    "fan-of-knives": 10,
+  },
+  barbarian: {
+    cleave: 1,
+    charge: 2,
+    crush: 3,
+    ironhide: 4,
+    execute: 5,
+    whirlwind: 6,
+    "blood-rush": 8,
+    shockwave: 10,
+  },
+};
+CLASSES.knight.abilities.push(
+  {
+    ...skill("shield-charge", "Shield Charge", "stone", 12, 14, 14, "stun"),
+    mobility: "charge",
+    generate: 15,
+    description:
+      "Rush to an enemy, strike with your shield and briefly stun it. Builds 15 Valor. Requires a clear path.",
+  },
+  {
+    ...skill("heroic-throw", "Heroic Throw", "stone", 30, 8, 16),
+    generate: 10,
+    description: "Throw a spectral sword at a distant enemy. Builds 10 Valor.",
+  },
+);
+CLASSES.mage.abilities.push(
+  {
+    ...skill("blink", "Blink", "spirit", 0, 12, 0),
+    mobility: "blink",
+    description:
+      "Teleport up to 9m forward along a clear path. Stops before walls and arena boundaries. No resource cost.",
+  },
+  {
+    ...skill("arcane-barrage", "Arcane Barrage", "spark", 32, 7, 18),
+    cost: 18,
+    aoe: 3,
+    description:
+      "Release three arcane motes that converge on your target and burst across nearby enemies.",
+  },
+);
+CLASSES.rogue.abilities.push(
+  {
+    ...skill("vanish", "Vanish", "spirit", 0, 30, 0, "stealth"),
+    description:
+      "Disappear for 8 seconds and drop creature aggression. You and your companion become untargetable. Attacking, ordering your pet to attack, or taking damage breaks stealth.",
+  },
+  {
+    ...skill("shadowstep", "Shadowstep", "spirit", 16, 14, 12),
+    mobility: "shadowstep",
+    cost: 15,
+    combo: 1,
+    description:
+      "Step through shadow to a nearby enemy along a clear path and strike. Awards 1 combo point.",
+  },
+  {
+    ...skill("fan-of-knives", "Fan of Knives", "leaf", 16, 8, 5, "poison"),
+    cost: 40,
+    aoe: 5,
+    aoeSelf: true,
+    description:
+      "Scatter poisoned daggers around you, striking every enemy within 5m.",
+  },
+);
+CLASSES.barbarian.abilities.push(
+  {
+    ...skill("charge", "Charge", "flame", 18, 14, 16, "stun"),
+    mobility: "charge",
+    generate: 20,
+    description:
+      "Charge an enemy with your axe raised, briefly stunning it and generating 20 Rage. Requires a clear path.",
+  },
+  {
+    ...skill("shockwave", "Shockwave", "stone", 28, 12, 5, "stun"),
+    cost: 30,
+    aoe: 5,
+    aoeSelf: true,
+    description:
+      "Slam the ground to release a rocky shockwave that damages and briefly stuns nearby enemies.",
+  },
+);
+for (const id of CLASS_IDS) {
+  for (const ability of CLASSES[id].abilities)
+    ability.unlock = progression[id][ability.id];
+  CLASSES[id].abilities.sort((a, b) => a.unlock! - b.unlock!);
+}
+
 function skill(
   id: string,
   name: string,

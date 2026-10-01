@@ -1,3 +1,4 @@
+import type { GearState } from "../../../../packages/shared/gear";
 import {
   AnimationGroupMask,
   AnimationGroupMaskMode,
@@ -22,8 +23,9 @@ export async function loadTrainers(scene: Scene) {
       classId: ClassId = "knight",
       appearance: Appearance = DEFAULT_APPEARANCE,
       armed = true,
+      gear: GearState["equipped"] = {},
     ) {
-      const actor = avatars.create(id, classId, appearance, armed);
+      const actor = avatars.create(id, classId, appearance, armed, gear);
       const idle = armed ? armedIdle(classId) : "Idle";
       const lowerBody = (name: string) =>
         /:(hips|root|.*leg[.]|foot[.]|toes[.]|pelvis|thigh_|calf_|foot_|ball_|kneeIK|heelIK|IK-foot|IK-toe|control-foot|control-heel|control-toe)/.test(

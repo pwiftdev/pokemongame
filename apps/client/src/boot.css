@@ -16,10 +16,17 @@
 }
 #boot-heading {
   margin: 0 0 28px;
-  color: var(--wop-yellow);
-  font: 700 clamp(48px, 12vw, 88px) / 1 var(--wop-font-display);
-  letter-spacing: 3px;
-  text-shadow: 3px 3px 0 var(--wop-yellow-d);
+}
+#boot-heading img {
+  display: block;
+  width: min(240px, 52vw, 40svh);
+  height: auto;
+  margin: auto;
+  image-rendering: pixelated;
+}
+#boot-brand-actions {
+  justify-content: center;
+  margin-top: 24px;
 }
 #boot-progress {
   appearance: none;

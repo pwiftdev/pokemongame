@@ -7,11 +7,11 @@ import type { Profile } from "../../../../packages/shared/types";
 
 const hints: Record<string, string> = {
   "first-friend":
-    "Collect your allowance, then visit the expedition board beside the town road.",
+    "Meet your Pokémon: G sends them into battle, H calls them back. Collect your allowance, then visit the expedition board.",
   "story-ranger":
     "Follow the western road. Press E beside Rowan to speak with him.",
   "story-orchard":
-    "Tab selects a monster. T starts attacking; 1–6 use your abilities. G sends your companion.",
+    "Tab selects a monster. G sends your Pokémon; Ctrl+1–4 command their moves. Fight alongside them with T and 1–6.",
   "story-satchel":
     "Look beside the orchard fence. Press E by the satchel, then return to Rowan.",
   "story-catch":
@@ -19,7 +19,7 @@ const hints: Record<string, string> = {
   "story-warden":
     "Return through Hearthwick and take the eastern road to Lanternwood.",
   "story-roots":
-    "Watch the marked ground. Move out before an attack lands; Space dodges.",
+    "Watch the marked ground. Move out before an attack lands; Alt dodges.",
   "story-wards":
     "Inspect each ward with E. The map marker moves to the next inscription.",
   "story-beacon":

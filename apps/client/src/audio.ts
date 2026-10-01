@@ -259,6 +259,7 @@ export class GameAudio {
         break;
       case "cast":
       case "pet-cast":
+      case "mobility":
         this.emit(
           abilitySound(event.ability),
           point,
@@ -269,7 +270,10 @@ export class GameAudio {
         this.emit("swing", point, 0.7);
         break;
       case "attack":
-        if (["heal", "guard"].includes(abilitySound(event.ability)))
+        if (
+          ["heal", "guard"].includes(abilitySound(event.ability)) ||
+          event.ability === "vanish"
+        )
           this.emit(abilitySound(event.ability), point);
         break;
       case "dash":

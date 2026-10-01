@@ -1,5 +1,5 @@
 import { createPublicKey, randomBytes, verify } from "node:crypto";
-import { BRAND } from "../../../packages/shared/data.js";
+import { createSignInMessageText } from "@solana/wallet-standard-util";
 import { HttpError } from "./errors.js";
 import { getBase58Encoder, isAddress } from "@solana/kit";
 
@@ -49,19 +49,18 @@ export function createChallenge(
     throw new HttpError(503, "Too many sign-in attempts. Please try again.");
   const nonce = randomBytes(16).toString("hex");
   const url = new URL(origin);
-  const message = [
-    `${url.host} wants you to sign in with your Solana account:`,
+  const message = createSignInMessageText({
+    domain: url.host,
     address,
-    "",
-    `Sign in to ${BRAND.title}. This request will not trigger a blockchain transaction or cost any fees.`,
-    "",
-    `URI: ${url.origin}`,
-    "Version: 1",
-    "Chain ID: mainnet",
-    `Nonce: ${nonce}`,
-    `Issued At: ${new Date(now).toISOString()}`,
-    `Expiration Time: ${new Date(now + CHALLENGE_MS).toISOString()}`,
-  ].join("\n");
+    statement:
+      "Sign in to World of Pokemon. This proves wallet ownership only. No transaction or fee is requested.",
+    uri: url.origin,
+    version: "1",
+    chainId: "solana:mainnet",
+    nonce,
+    issuedAt: new Date(now).toISOString(),
+    expirationTime: new Date(now + CHALLENGE_MS).toISOString(),
+  });
   challenges.set(nonce, { address, message, expires: now + CHALLENGE_MS });
   return { nonce, message };
 }

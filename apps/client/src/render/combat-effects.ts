@@ -1,3 +1,4 @@
+import { createClassEffects, classSkillColor } from "./class-effects";
 import { createPokemonEffects } from "./pokemon-effects";
 import { createPokemonMoments } from "./pokemon-moments";
 import { createFlameMaterial } from "./fire";
@@ -45,6 +46,7 @@ export function createCombatEffects(
   const primitives = createCombatPrimitives(scene, materials, track, onImpact);
   const { ring, glow, burst, text, impact, status } = primitives;
   const pokemon = createPokemonEffects(scene, pool, materials, primitives);
+  const classes = createClassEffects(scene, pool, materials, primitives);
   const moments = createPokemonMoments(scene, pool, materials, primitives);
   function weaponStrike(
     event: GameEvent,
@@ -77,7 +79,9 @@ export function createCombatEffects(
       scene,
     );
     arc.position.copyFrom(from);
-    arc.material = material(heavy ? "#ffd69a" : "#e7f6ff");
+    arc.material = material(
+      classSkillColor(event.ability, heavy ? "#ffd69a" : "#e7f6ff"),
+    );
     if (light) arc.scaling.setAll(0.8);
     const yaw = Math.atan2(to.x - from.x, to.z - from.z);
     let landed = false;
@@ -230,7 +234,10 @@ export function createCombatEffects(
       return;
     }
     const ability = ABILITIES[event.ability ?? ""];
-    const color = colors[ability?.element ?? element];
+    const color = classSkillColor(
+      event.ability,
+      colors[ability?.element ?? element],
+    );
     const rangedAuto =
       event.type === "hit" && event.auto && RANGED_ELEMENTS.includes(element);
     if ((event.type === "hit" || event.type === "impact") && !rangedAuto) {
@@ -239,6 +246,8 @@ export function createCombatEffects(
       else impact(to, event, color);
       return;
     }
+    if (classes.personal(event.ability ?? "", ability?.effect, to, follow))
+      return;
     if (["guard", "heal", "evasion"].includes(ability?.effect ?? "")) {
       ring(to, color, 3, 0.9);
       const bubble = MeshBuilder.CreateSphere(
@@ -276,7 +285,8 @@ export function createCombatEffects(
       return;
     }
     if (ability?.aoeSelf) {
-      spin(event, from, ability.aoe ?? 4, windup);
+      if (!classes.area(ability.id, from, ability.aoe ?? 4, windup))
+        spin(event, from, ability.aoe ?? 4, windup);
       return;
     }
     if (ability?.effect === "taunt") {
@@ -317,7 +327,18 @@ export function createCombatEffects(
           { radius: 0.38, subdivisions: 2 },
           scene,
         )
-      : createSpellShape(scene, elementType);
+      : event.ability === "heroic-throw"
+        ? MeshBuilder.CreateCylinder(
+            "spectral sword",
+            {
+              diameterTop: 0,
+              diameterBottom: 0.22,
+              height: 1.6,
+              tessellation: 4,
+            },
+            scene,
+          )
+        : createSpellShape(scene, elementType);
     bolt.material = meteor ? meteorMaterial : material(color);
     if (elementType === "flame") {
       if (!meteor) bolt.scaling.scaleInPlace(0.55);
@@ -375,6 +396,32 @@ export function createCombatEffects(
       undefined,
       windup,
     );
+    if (event.ability === "arcane-barrage") {
+      for (let i = 0; i < 2; i++) {
+        const mote = pool.acquire("arcane-mote", () =>
+          MeshBuilder.CreateIcoSphere(
+            "arcane mote",
+            { radius: 0.18, subdivisions: 1 },
+            scene,
+          ),
+        );
+        mote.material = material(i ? "#f0c8ff" : "#b28aff");
+        track(
+          mote,
+          duration,
+          (t) => {
+            mote.position.copyFrom(Vector3.Lerp(origin, destination, t));
+            mote.position.x +=
+              Math.sin(t * Math.PI * 3 + i * Math.PI) * Math.sin(t * Math.PI);
+            mote.position.y +=
+              Math.cos(t * Math.PI * 3 + i * Math.PI) * Math.sin(t * Math.PI);
+            mote.visibility = 1 - t * 0.4;
+          },
+          undefined,
+          windup,
+        );
+      }
+    }
     for (let i = 0; i < 8; i++) {
       const trail = MeshBuilder.CreatePlane(
         "element trail",
@@ -414,6 +461,7 @@ export function createCombatEffects(
     ring(from, color, 1, 0.3);
   }
   return {
+    mobility: classes.mobility,
     captureSequence: moments.capture,
     evolve: moments.evolve,
     cast,

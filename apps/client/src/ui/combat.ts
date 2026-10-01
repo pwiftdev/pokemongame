@@ -20,12 +20,16 @@ export function abilityAvailability(
 ) {
   if (!self || self.hp <= 0) return "You need healing";
   if ((self.stunUntil ?? 0) > serverNow) return "Briefly stunned";
-  if (self.level !== undefined && self.level < (ability.unlock ?? 1))
+  const skillLevel = self.skillLevel ?? self.level;
+  if (skillLevel !== undefined && skillLevel < (ability.unlock ?? 1))
     return `Unlocks at level ${ability.unlock}`;
-  const personal = ["heal", "guard", "evasion"].includes(ability.effect ?? "");
+  const personal =
+    ["heal", "guard", "evasion", "stealth"].includes(ability.effect ?? "") ||
+    ability.mobility === "blink";
   if (self.cast && self.cast.resolvesAt > serverNow && !ability.offGcd)
     return "Casting";
-  if (self.dash && self.dash.until > serverNow) return "Dashing";
+  if ((self.dash && self.dash.until > serverNow) || self.mobility)
+    return "Moving";
   if (cooldownUntil > now) return "Recharging";
   if (!ability.offGcd && gcdUntil > now) return "Recharging";
   if (self.resource !== undefined && self.resource < (ability.cost ?? 0))
@@ -40,7 +44,12 @@ export function abilityAvailability(
       !TRAINING_TARGETS.some((t) => distance(self, t) <= (ability.aoe ?? 0))
       ? "Leave the safe haven to battle"
       : "Ready";
-  if (!target || target.hp <= 0) return "Choose a target";
+  if (
+    !target ||
+    target.hp <= 0 ||
+    ("stealthUntil" in target && (target.stealthUntil ?? 0) > serverNow)
+  )
+    return "Choose a target";
   if (
     duel &&
     ("species" in target ||

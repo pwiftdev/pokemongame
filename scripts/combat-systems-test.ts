@@ -53,7 +53,7 @@ async function check(name: string, run: () => Promise<void>) {
     throw error;
   }
 }
-async function hero(name: string, classId: ClassId, room: string, level = 1) {
+async function hero(name: string, classId: ClassId, room: string, level = 3) {
   const p = await NetworkPlayer.create(name, undefined, room);
   players.push(p);
   p.send({ kind: "starter", species: "bulbasaur", classId });
@@ -66,10 +66,43 @@ async function hero(name: string, classId: ClassId, room: string, level = 1) {
       c.hp = c.maxHp;
       c.moves = learnedMoves(c.species, level);
       profile.heroHp = undefined;
+      const loadouts: Record<ClassId, (string | null)[]> = {
+        knight: [
+          "slash",
+          "shield-strike",
+          level >= 8 ? "rally" : null,
+          level >= 4 ? "bulwark" : null,
+          level >= 5 ? "challenge" : null,
+          level >= 6 ? "sweep" : null,
+        ],
+        mage: [
+          "firebolt",
+          "frostbolt",
+          "meteor",
+          "barrier",
+          "counterspell",
+          "icelance",
+        ],
+        rogue: ["stab", "venom", "ambush", "evasion", "eviscerate", "kick"],
+        barbarian: [
+          "cleave",
+          "crush",
+          "blood-rush",
+          "ironhide",
+          "execute",
+          "whirlwind",
+        ],
+      };
+      profile.combat = {
+        slots: loadouts[classId],
+        layout: "row",
+        labels: true,
+      };
     });
     const roomId = p.room.roomId;
     await p.close();
-    await p.join(roomId);
+    p.world = undefined;
+    await p.join(room === "new" ? "new" : roomId);
   }
   p.send({ kind: "pet", mode: "passive" });
   return p;
@@ -146,10 +179,7 @@ try {
       mark = knight.errors.length;
       knight.send({ kind: "attack", target: "sprig-1", slot: 4 });
       await until(() => knight.errors.length > mark);
-      assert.equal(
-        errorsSince(knight, mark)[0],
-        "Challenge unlocks at level 2.",
-      );
+      assert.equal(errorsSince(knight, mark)[0], "Ability is unavailable.");
       const events = knight.events.length;
       knight.send({ kind: "attack", target: "sprig-1", slot: 0 });
       await until(() =>
@@ -230,14 +260,14 @@ try {
     await until(() => self().hp > low, 6000);
   });
 
-  const mage = await hero("Systems Mage", "mage", room, 3);
-  const guard = await hero("Systems Guard", "knight", room, 3);
-  const rogue = await hero("Systems Rogue", "rogue", room, 3);
-  const barbarian = await hero("Systems Barbarian", "barbarian", room, 3);
+  const mage = await hero("Systems Mage", "mage", room, 10);
+  const guard = await hero("Systems Guard", "knight", room, 10);
+  const rogue = await hero("Systems Rogue", "rogue", room, 10);
+  const barbarian = await hero("Systems Barbarian", "barbarian", room, 10);
 
   await check("Mana is spent by spells and energy by strikes", async () => {
-    assert.equal(mage.self!.resourceMax, 120);
-    assert.equal(mage.self!.resource, 120);
+    assert.equal(mage.self!.resourceMax, 190);
+    assert.equal(mage.self!.resource, 190);
     assert.equal(rogue.self!.resource, 100);
   });
 
@@ -245,9 +275,9 @@ try {
     "A Knight's Challenge taunts a creature off the Mage and takes the threat lead",
     async () => {
       await settled(mage, "sprig-2");
-      await approach(mage, "sprig-2", 12);
+      await approach(mage, "sprig-2", 2.5);
       await approach(guard, "sprig-2", 7);
-      mage.send({ kind: "attack", target: "sprig-2", slot: 0 });
+      mage.send({ kind: "autoattack", target: "sprig-2" });
       await until(
         () => wild(mage, "sprig-2").target === mage.profile.id,
         6000,
@@ -263,6 +293,9 @@ try {
       const w = wild(guard, "sprig-2");
       assert(w.auras?.some((a) => a.id === "taunted"));
       assert.equal(w.threat?.[guard.profile.id], 100);
+      mage.send({ kind: "autoattack", target: null });
+      guard.send({ kind: "autoattack", target: null });
+      await until(() => !mage.self?.autoTarget && !guard.self?.autoTarget);
       assert(
         guard.events.some(
           (e) => e.type === "impact" && e.ability === "challenge",
@@ -275,8 +308,8 @@ try {
     "Frost Nova chills and Ice Lance shatters for triple damage",
     async () => {
       const chilled = () =>
-        !!wild(mage, "sprig-2").auras?.some((a) => a.id === "slow");
-      await approach(mage, "sprig-2", 9);
+        !!wild(mage, "training-strikes").auras?.some((a) => a.id === "slow");
+      await approach(mage, "training-strikes", 9);
       for (let tries = 0; !chilled() && tries < 3; tries++) {
         await until(
           () => (mage.self?.cooldowns?.frostbolt ?? 0) <= Date.now(),
@@ -285,7 +318,7 @@ try {
         );
         await gcd(mage);
         const mark = mage.events.length;
-        mage.send({ kind: "attack", target: "sprig-2", slot: 1 });
+        mage.send({ kind: "attack", target: "training-strikes", slot: 1 });
         await until(
           () =>
             mage.events
@@ -293,14 +326,14 @@ try {
               .some((e) => e.type === "impact" && e.ability === "frostbolt"),
           4000,
           () =>
-            `Frost Nova impact; errors ${JSON.stringify(mage.errors.slice(-3))}; target ${JSON.stringify(wild(mage, "sprig-2"))}`,
+            `Frost Nova impact; errors ${JSON.stringify(mage.errors.slice(-3))}; target ${JSON.stringify(wild(mage, "training-strikes"))}`,
         );
         await delay(150);
       }
       assert(chilled(), "Frost Nova chills the target");
       await gcd(mage);
       const mark = mage.events.length;
-      mage.send({ kind: "attack", target: "sprig-2", slot: 5 });
+      mage.send({ kind: "attack", target: "training-strikes", slot: 5 });
       await until(() =>
         mage.events
           .slice(mark)
@@ -314,27 +347,27 @@ try {
           mage.events.slice(mark).some((e) => e.type === "shatter"),
           "A landed Ice Lance on a chilled target shatters",
         );
-      assert(mage.self!.resource! < 120, "Spells cost mana");
+      assert(mage.self!.resource! < 190, "Spells cost mana");
     },
   );
 
   await check(
     "Rogue builders award combo points and Eviscerate consumes them",
     async () => {
-      await approach(rogue, "sprig-2", 2);
+      await approach(rogue, "training-strikes", 2);
       for (let tries = 0; (rogue.self?.combo ?? 0) < 2 && tries < 8; tries++) {
         await gcd(rogue);
         await until(() => (rogue.self?.resource ?? 0) >= 30, 5000);
-        if (wild(rogue, "sprig-2").hp <= 0) break;
-        rogue.send({ kind: "attack", target: "sprig-2", slot: 0 });
+        if (wild(rogue, "training-strikes").hp <= 0) break;
+        rogue.send({ kind: "attack", target: "training-strikes", slot: 0 });
         await delay(900);
       }
-      if (wild(rogue, "sprig-2").hp <= 0) return;
+
       assert((rogue.self?.combo ?? 0) >= 1);
       await gcd(rogue);
       await until(() => (rogue.self?.resource ?? 0) >= 35, 5000);
       const mark = rogue.events.length;
-      rogue.send({ kind: "attack", target: "sprig-2", slot: 4 });
+      rogue.send({ kind: "attack", target: "training-strikes", slot: 4 });
       await until(() =>
         rogue.events
           .slice(mark)
@@ -345,8 +378,7 @@ try {
   );
 
   await check("Venom Blade poisons for periodic damage", async () => {
-    const target = ["sprig-2", "sprig-1"].find((id) => wild(rogue, id).hp > 0);
-    if (!target) return;
+    const target = "training-combos";
     await approach(rogue, target, 2);
     await until(() => (rogue.self?.resource ?? 0) >= 35, 5000);
     await gcd(rogue);
@@ -500,7 +532,7 @@ try {
       {
         timestamp: new Date().toISOString(),
         method:
-          "Real Colyseus clients against an isolated server and PostgreSQL schema. Level-3 fixtures use the production mutate path; every ability, auto attack and creature response uses the authoritative command and tick paths.",
+          "Real Colyseus clients against an isolated server and PostgreSQL schema. Explicit level-3 and level-10 loadout fixtures use the production mutate path; every ability, auto attack and creature response uses the authoritative command and tick paths.",
         checks,
         errors: players.map((p) => p.errors),
       },

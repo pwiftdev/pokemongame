@@ -49,7 +49,8 @@ export function outcomeScale(outcome: Outcome, spell: boolean) {
 /** ±10% damage variance. */
 export const variance = (roll = Math.random()) => 0.9 + roll * 0.2;
 
-export const isSpell = (ability: Ability) => ability.range > 6;
+export const isSpell = (ability: Ability) =>
+  ability.range > 6 && !ability.mobility && ability.id !== "heroic-throw";
 /** Creature elements that fight from range with bolts. */
 export const RANGED_ELEMENTS: string[] = ["flame", "tide", "spark", "spirit"];
 /** A hero attacking a wild creature. */
@@ -176,6 +177,7 @@ export function difficulty(targetLevel: number, heroLevel: number): Difficulty {
 }
 
 export type AuraId =
+  | "stealth"
   | "guard"
   | "stun"
   | "slow"
@@ -197,6 +199,13 @@ export const AURAS: Record<
   AuraId,
   { name: string; debuff: boolean; color: string; description: string }
 > = {
+  stealth: {
+    name: "Vanished",
+    debuff: false,
+    color: "#b79cff",
+    description:
+      "Hidden for 8 seconds. Attacking or taking damage reveals you.",
+  },
   guard: {
     name: "Guarded",
     debuff: false,

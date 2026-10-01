@@ -1,3 +1,4 @@
+import { hiddenHero } from "./class-combat.js";
 import { isTraining } from "../../../packages/shared/training.js";
 import { randomUUID } from "node:crypto";
 import { shapeContains } from "../../../packages/shared/combat.js";
@@ -52,6 +53,13 @@ export function createCompanionCombat(context: Context) {
       pet.cast = undefined;
       pet.command = undefined;
       p.petTarget = undefined;
+      return;
+    }
+    if (hiddenHero(p, now)) {
+      p.petTarget = undefined;
+      pet.cast = undefined;
+      pet.command = undefined;
+      moveCompanion(pet, p, creature, undefined, context.wilds.values(), now);
       return;
     }
     let target = context.wilds.get(p.petTarget ?? "");

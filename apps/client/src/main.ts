@@ -1,3 +1,13 @@
+import { mountBrandActions } from "./ui/brand-actions";
+import { GEAR, GEAR_SLOTS, type GearSlot } from "../../../packages/shared/gear";
+import { gearPanel, type GearTab } from "./ui/gear";
+import { mountGearPreview } from "./ui/gear-preview";
+import {
+  combatLoadout,
+  equippedAbilities,
+  placeSkill,
+} from "../../../packages/shared/skillbook";
+import { skillbookPanel } from "./ui/skillbook";
 import { PLACES } from "../../../packages/shared/data";
 import { trainingPanel } from "./ui/practice";
 import { TRAINING_TARGETS } from "../../../packages/shared/training";
@@ -12,7 +22,7 @@ import {
 } from "./ui/explorers";
 import { performanceMarkup, updatePerformance } from "./ui/performance";
 import "./adventure.css";
-import { onboardingSteps } from "./ui/onboarding";
+import { onboardingSteps, pokemonWelcomeMarkup } from "./ui/onboarding";
 import { startup } from "./loading/progress";
 import { failLoading, finishLoading } from "./loading/screen";
 import { prepareInterface } from "./loading/interface-assets";
@@ -116,7 +126,14 @@ import "./style.css";
 import "./interface.css";
 import "./wallet.css";
 
+let gearSlot: GearSlot = "weapon";
+let gearTab: GearTab = "owned";
+let gearPreviewId: string | undefined;
+let gearPreview: ReturnType<typeof mountGearPreview> | undefined;
+let gearPreviewKey = "";
 type Panel =
+  | "gear"
+  | "skills"
   | "explorers"
   | "appearance"
   | "pokedex"
@@ -146,6 +163,12 @@ const defaults: Settings = {
   cameraShake: true,
   scale: 1,
   keybinds: {
+    ability1: "Digit1",
+    ability2: "Digit2",
+    ability3: "Digit3",
+    ability4: "Digit4",
+    ability5: "Digit5",
+    ability6: "Digit6",
     forward: "KeyW",
     backward: "KeyS",
     left: "KeyA",
@@ -209,6 +232,7 @@ const STORE = {
   resume: "island.resume",
 };
 let sessionToken = "";
+let linkingWallet = false;
 let chat: Chat | undefined;
 let wopStatus: WopStatus | undefined;
 let wopLoading = false;
@@ -404,6 +428,12 @@ async function loadWop() {
 }
 /** Sign in with a wallet from inside the game. A guest account is upgraded. */
 async function linkWallet(kind: WalletKind) {
+  if (linkingWallet) return;
+  linkingWallet = true;
+  const buttons = document.querySelectorAll<HTMLButtonElement>(
+    '[data-action^="wallet-link:"]',
+  );
+  for (const button of buttons) button.disabled = true;
   try {
     const result = await signInWithWallet(kind, post, {
       guestToken: isGuest(profile) ? sessionToken : undefined,
@@ -434,6 +464,9 @@ async function linkWallet(kind: WalletKind) {
       error instanceof Error ? error.message : "Wallet sign-in failed.",
       "error",
     );
+  } finally {
+    linkingWallet = false;
+    for (const button of buttons) button.disabled = false;
   }
 }
 async function convertWop() {
@@ -472,9 +505,9 @@ async function convertWop() {
 function shell() {
   app.innerHTML = `
     <div id="title-screen" class="title-screen">
-      <header class="title-header"><a class="wordmark" href="#" aria-label="${esc(title)} home">${worldMark()}<span>${esc(title)}<small>${esc(BRAND.subtitle).toUpperCase()}</small></span></a><div class="edition"><span class="live-dot"></span> A SHARED WORLD, YOUR OWN STORY</div>${button(icon("settings"), "panel:settings", "icon-button", false)}</header>
-      <main class="title-content"><div class="eyebrow"><span></span> WELCOME TO ${esc(BRAND.island).toUpperCase()}</div><h1><span>WORLD OF</span>POKÉMON</h1><div class="adventure-tags"><span>EXPLORE</span><span>BEFRIEND</span><span>BATTLE</span></div><p>Your Pokémon. Your party. Your adventure.<br />Discover a shared world, one encounter at a time.</p>
-      <div id="entry-form" class="entry-form"><div id="wallet-session" class="wallet-session hidden"></div><label for="nickname">WHAT SHOULD WE CALL YOU?</label><input id="nickname" maxlength="18" minlength="2" autocomplete="nickname" placeholder="Your explorer name" aria-describedby="guest-note" /><div class="wallet-buttons">${walletButtons("wallet", true)}</div><div class="or-rule"><span>or</span></div><button id="start" class="secondary start-button guest-button" data-action="start" disabled><span id="start-label">Preparing the island…</span>${icon("arrow")}</button><details class="world-choice"><summary>Choose an island</summary><label for="world-mode">SHARED WORLD</label><select id="world-mode"><option value="auto">Find an island automatically</option><option value="new">Create a fresh island</option><option value="code">Join a friend’s island</option></select><input id="world-code" aria-label="Island code" maxlength="24" placeholder="Paste your friend’s island code" class="hidden" /></details><div id="guest-note" class="guest-note">Wallet explorers roam the whole isle, tame Pokémon, duel, chat and convert ${esc(currency)} to ${WOP.symbol}.<br />Guests can explore Hearthwick and Sunpetal Meadows and battle the monsters there.</div></div>
+      <header class="title-header"><a class="wordmark" href="#" aria-label="${esc(title)} home">${worldMark()}<span>${esc(title)}<small>${esc(BRAND.subtitle).toUpperCase()}</small></span></a><div id="title-brand-actions" class="brand-actions"></div>${button(icon("settings"), "panel:settings", "icon-button", false)}</header>
+      <main class="title-content"><div class="eyebrow"><span></span> WELCOME TO ${esc(BRAND.island).toUpperCase()}</div><h1><span>WORLD OF</span>POKÉMON</h1><div class="adventure-tags"><span>DISCOVER</span><span>CATCH</span><span>EVOLVE</span></div>${pokemonWelcomeMarkup()}
+      <div id="entry-form" class="entry-form"><div id="wallet-session" class="wallet-session hidden"></div><label for="nickname">WHAT SHOULD WE CALL YOU?</label><input id="nickname" maxlength="18" minlength="2" autocomplete="nickname" placeholder="Your explorer name" aria-describedby="guest-note" /><div class="wallet-buttons">${walletButtons("wallet", true)}</div><div class="or-rule"><span>or</span></div><button id="start" class="secondary start-button guest-button" data-action="start" disabled><span id="start-label">Preparing the island…</span>${icon("arrow")}</button><details class="world-choice"><summary>Choose an island</summary><label for="world-mode">SHARED WORLD</label><select id="world-mode"><option value="auto">Find an island automatically</option><option value="new">Create a fresh island</option><option value="code">Join a friend’s island</option></select><input id="world-code" aria-label="Island code" maxlength="24" placeholder="Paste your friend’s island code" class="hidden" /></details><div id="guest-note" class="guest-note">Start free with your first Pokémon. Guests can explore Hearthwick and Sunpetal Meadows and battle together.<br />Connect a wallet to catch more Pokémon, explore every region, duel and chat.</div></div>
       <div id="loading-status" class="loading-status"><span class="loading-line"></span>Preparing your expedition</div></main>
       <aside class="vista-label"><span class="coordinate">01 / 04</span><span>Hearthwick<small>Every great friendship starts somewhere.</small></span></aside>
       <footer class="title-footer"><span>EXPLORE. BEFRIEND. BELONG.</span><div>${button("Field notes & credits", "panel:credits", "text-button")}<span class="footer-rule"></span><span>DESKTOP ADVENTURE</span></div></footer>
@@ -485,6 +518,10 @@ function shell() {
     <div id="connection" class="connection hidden" role="alert"></div>
     <div id="modal-root"></div><div id="toasts" class="toasts" aria-live="polite"></div>
     <div class="small-screen"><strong>A bigger world needs a bigger screen.</strong><p>Play on a desktop with a keyboard and mouse. A window at least 800 pixels wide works best.</p></div>`;
+  mountBrandActions(
+    document.querySelector<HTMLElement>("#title-brand-actions")!,
+    true,
+  );
   document
     .querySelector<HTMLSelectElement>("#world-mode")!
     .addEventListener("change", (event) => {
@@ -557,7 +594,7 @@ async function connect(
     let session: { token: string; profile: Profile };
     if (walletKind) {
       const result = await signInWithWallet(walletKind, post, {
-        nickname: nickname.length >= 2 ? nickname : undefined,
+        nickname: nickname.length >= 2 ? nickname : "Explorer",
         guestToken: stored(STORE.guest) || undefined,
       });
       localStorage.setItem(STORE.wallet, result.token);
@@ -619,8 +656,8 @@ async function connect(
       if (self?.cooldowns) {
         const local = (until = 0) =>
           Date.now() + Math.max(0, until - next.time);
-        cooldowns = heroClass(profile?.classId).abilities.map((a) =>
-          local(self.cooldowns?.[a.id]),
+        cooldowns = equippedAbilities(profile!).map((a) =>
+          a ? local(self.cooldowns?.[a.id]) : 0,
         );
         if (Date.now() - lastAttackSent > 350) gcdUntil = local(self.gcdUntil);
       }
@@ -673,6 +710,7 @@ async function connect(
           "hit",
           "impact",
           "dash",
+          "mobility",
           "cast-cancel",
           "swing",
           "dot",
@@ -686,13 +724,14 @@ async function connect(
           event.source === profile?.id &&
           event.ability &&
           (event.type === "cast" ||
+            event.type === "mobility" ||
             (event.type === "attack" &&
-              ["heal", "guard", "evasion"].includes(
+              ["heal", "guard", "evasion", "stealth"].includes(
                 ABILITIES[event.ability]?.effect ?? "",
               )))
         ) {
-          const slot = heroClass(profile?.classId).abilities.findIndex(
-            (a) => a.id === event.ability,
+          const slot = equippedAbilities(profile!).findIndex(
+            (a) => a?.id === event.ability,
           );
           if (slot >= 0)
             cooldowns[slot] =
@@ -795,7 +834,7 @@ function starterScreen() {
   const starters = species().filter((entry) => entry.starter);
   if (!selectedStarter) selectedStarter = text(starters[0] || {}, "id");
   document.querySelector("#starter-screen")!.innerHTML =
-    `<div class="starter-intro">${onboardingSteps(2)}<span class="eyebrow">YOUR FIRST CHAPTER</span><h2>Every adventure<br />begins with <em>a friend.</em></h2><p>Three different spirits. One lifelong companion.<br />Find wild Pokémon to grow your team. Hostile monsters are enemies.</p></div><div class="starter-options">${starters.map((entry) => `<button class="starter-option ${selectedStarter === entry.id ? "selected" : ""}" aria-pressed="${selectedStarter === entry.id}" data-action="starter-select:${esc(entry.id)}">${portrait(text(entry, "id"), false, "starter-portrait")}<span class="eyebrow">${esc(entry.element)} AFFINITY</span><h3>${esc(entry.name)}</h3><p>${esc(entry.description || entry.blurb || "A loyal little companion, ready for a big adventure.")}</p><span class="starter-choice">${selectedStarter === entry.id ? `${icon("check")} YOUR COMPANION` : "GET TO KNOW ME"}</span></button>`).join("")}</div><div class="starter-footer">${button(`Meet your companion ${icon("arrow")}`, "starter-confirm", "primary")}<small>Move with WASD · Drag to orbit · Q / R to rotate · E to interact</small></div>`;
+    `<div class="starter-intro">${onboardingSteps(2)}<span class="eyebrow">YOUR FIRST POKÉMON</span><h2>Choose your <br /><em>first partner.</em></h2><p>Every trainer class can partner with any Pokémon.<br />Command their moves, grow your team, and discover their evolutions.</p></div><div class="starter-options">${starters.map((entry) => `<button class="starter-option ${selectedStarter === entry.id ? "selected" : ""}" aria-pressed="${selectedStarter === entry.id}" data-action="starter-select:${esc(entry.id)}">${portrait(text(entry, "id"), false, "starter-portrait")}<span class="eyebrow">${esc(entry.element)} AFFINITY</span><h3>${esc(entry.name)}</h3><p>${esc(entry.description || entry.blurb || "A loyal little companion, ready for a big adventure.")}</p><span class="starter-choice">${selectedStarter === entry.id ? `${icon("check")} YOUR COMPANION` : "GET TO KNOW ME"}</span></button>`).join("")}</div><div class="starter-footer">${button(`Begin our adventure ${icon("arrow")}`, "starter-confirm", "primary")}<small>G: send your Pokémon · H: call back · Ctrl + 1–4: Pokémon moves</small></div>`;
   screen
     .querySelector(".starter-footer")!
     .insertAdjacentHTML(
@@ -823,14 +862,16 @@ function currentCombatLevel() {
 }
 function refreshActionBar() {
   if (!profile?.classId) return;
-  const level = currentCombatLevel();
-  const key = `${profile.classId}:${level}:${profile.inventory.capsule ?? 0}`;
+  const level = heroLevel(profile);
+  const key = `${profile.classId}:${level}:${profile.inventory.capsule ?? 0}:${JSON.stringify(profile.combat)}:${JSON.stringify(settings.keybinds)}`;
   if (key === barKey) return;
   barKey = key;
   document.querySelector("#abilities")!.innerHTML = actionBarMarkup(
     profile.classId,
     level,
     profile.inventory.capsule ?? 0,
+    profile,
+    settings.keybinds,
   );
   tooltips?.refresh();
 }
@@ -904,7 +945,7 @@ function levelUp(level: number, previous: number) {
     (a) => abilityUnlocked(a, level) && !abilityUnlocked(a, previous),
   );
   const banner = document.querySelector<HTMLElement>("#level-banner")!;
-  banner.innerHTML = `<span class="eyebrow">YOU HAVE REACHED</span><strong>Level ${level}</strong>${learned.map((a) => `<small>New ability: <b>${esc(a.name)}</b> · press ${heroClass(profile?.classId).abilities.indexOf(a) + 1}</small>`).join("")}`;
+  banner.innerHTML = `<span class="eyebrow">YOU HAVE REACHED</span><strong>Level ${level}</strong>${learned.map((a) => `<small>New ability: <b>${esc(a.name)}</b> · press K to open the Skillbook</small>`).join("")}`;
   banner.classList.remove("hidden", "show");
   void banner.offsetWidth;
   banner.classList.add("show");
@@ -1020,6 +1061,14 @@ function refreshWorld() {
           : `<strong>Challenge sent</strong><span>Waiting for your fellow explorer.</span>${button("Cancel invitation", `duelCancel:${duel.id}`, "text-button")}`,
     );
   refreshCombatControls();
+  if (activePanel === "skills" || activePanel === "gear") {
+    const busy = !!(self?.inCombat || self?.duelId);
+    if (
+      document.querySelector<HTMLElement>(".skillbook-intro, .gear-workbench")
+        ?.dataset.combatBusy !== String(busy)
+    )
+      renderPanel(false);
+  }
   if (activePanel === "map") updateMapPosition();
   if (activePanel === "explorers" && Date.now() - lastExplorersAt > 1000) {
     lastExplorersAt = Date.now();
@@ -1040,7 +1089,7 @@ function refreshWorld() {
 function attack(slot: number, quiet = false) {
   if (activePanel || !playing || !profile || !snapshot || !connected) return;
   if (Date.now() - lastCastAt < 120) return;
-  const ability = heroClass(profile.classId).abilities[slot];
+  const ability = equippedAbilities(profile)[slot];
   const self = snapshot.players.find((player) => player.id === profile!.id);
   if (!ability) return;
   if (!target && self && ability.power > 0 && !ability.aoeSelf) {
@@ -1092,7 +1141,8 @@ function attack(slot: number, quiet = false) {
   world.predictAbility(ability.id);
   send("attack", {
     target:
-      ["heal", "guard", "evasion"].includes(ability.effect ?? "") ||
+      ["heal", "guard", "evasion", "stealth"].includes(ability.effect ?? "") ||
+      ability.mobility === "blink" ||
       ability.aoeSelf
         ? profile.id
         : target || profile.id,
@@ -1165,7 +1215,7 @@ function refreshCombatControls() {
       queuedAbility = undefined;
     else attack(queued.slot, true);
   }
-  const abilities = heroClass(profile.classId).abilities;
+  const abilities = equippedAbilities(profile);
   document
     .querySelectorAll<HTMLButtonElement>(".ability[data-slot]")
     .forEach((button) => {
@@ -1273,6 +1323,8 @@ function interact() {
 }
 
 const panelNames: Record<Panel, [string, string]> = {
+  gear: ["Equipment & collectibles", "EQUIP · COLLECT · GROW STRONGER"],
+  skills: ["Class skillbook", "LEARN · EQUIP · MAKE IT YOURS"],
   explorers: ["Island explorers", "ADVENTURE TOGETHER"],
   appearance: ["Character", "YOUR ADVENTURER"],
   pokedex: ["Pokédex", "YOUR POKÉDEX"],
@@ -1327,6 +1379,8 @@ async function loadRecords(path: string, setter: (value: unknown[]) => void) {
   }
 }
 function closePanel() {
+  gearPreview?.dispose();
+  gearPreview = undefined;
   appearanceEditor?.dispose();
   appearanceEditor = undefined;
   if (activePanel) audio.play("close");
@@ -1337,6 +1391,29 @@ function closePanel() {
 }
 function panelBody(panel: Panel): string {
   switch (panel) {
+    case "gear": {
+      const self = snapshot?.players.find((p) => p.id === profile?.id);
+      const shop = PLACES.find((p) => p.id === "shop")!;
+      return profile
+        ? gearPanel(
+            profile,
+            gearSlot,
+            gearTab,
+            gearPreviewId,
+            !!(self?.inCombat || self?.duelId),
+            !!self && Math.hypot(self.x - shop.x, self.z - shop.z) <= 9,
+          )
+        : "";
+    }
+    case "skills":
+      return profile
+        ? skillbookPanel(
+            profile,
+            !!snapshot?.players.find(
+              (p) => p.id === profile?.id && (p.inCombat || p.duelId),
+            ),
+          )
+        : "";
     case "explorers":
       return explorersPanel(
         snapshot?.players ?? [],
@@ -1376,6 +1453,23 @@ function panelBody(panel: Panel): string {
 }
 function renderPanel(focus = true) {
   if (!activePanel) return;
+  const trial = GEAR[gearPreviewId ?? ""];
+  const equipment = {
+    ...profile?.gear?.equipped,
+    ...(trial ? { [trial.slot]: trial.id } : {}),
+  };
+  const previewKey =
+    activePanel === "gear" && profile
+      ? JSON.stringify([profile.classId, profile.appearance, equipment])
+      : "";
+  const existingPreview =
+    previewKey && previewKey === gearPreviewKey
+      ? document.querySelector("#gear-preview")
+      : undefined;
+  if (!existingPreview) {
+    gearPreview?.dispose();
+    gearPreview = undefined;
+  }
   appearanceEditor?.dispose();
   appearanceEditor = undefined;
   const panel = activePanel;
@@ -1390,6 +1484,13 @@ function renderPanel(focus = true) {
   if (focus) (root.querySelector("button") as HTMLElement)?.focus();
   else restore();
 
+  if (panel === "gear" && profile) {
+    const host = root.querySelector("#gear-preview")!;
+    if (existingPreview) host.replaceWith(existingPreview);
+    else
+      gearPreview = mountGearPreview(host as HTMLElement, profile, equipment);
+    gearPreviewKey = previewKey;
+  }
   if (panel === "appearance" && profile)
     appearanceEditor = mountCharacterCreator(
       root.querySelector("#character-editor")!,
@@ -1447,7 +1548,7 @@ function inventoryPanel() {
   const inventory = Object.entries(profile.inventory).filter(
     ([, quantity]) => quantity > 0,
   );
-  return `<div class="notice">${icon("bag")}<span>Healing items affect your deployed companion. Capsules require a selected wild target.</span>${button("Visit shop", "panel:shop", "text-button")}</div><div class="item-grid">${
+  return `<div class="notice">${icon("bag")}<span>Open <button class="text-button" data-action="panel:gear">Gear (I)</button> for your hero’s equipment. Healing items affect your deployed companion. Capsules require a selected wild target.</span>${button("Visit shop", "panel:shop", "text-button")}</div><div class="item-grid">${
     inventory
       .map(([id, quantity]) => {
         const entry = findItem(id);
@@ -1461,7 +1562,7 @@ function inventoryPanel() {
   }</div>`;
 }
 function shopPanel() {
-  return `${locationNote("shop")}<div class="shop-balance">Good preparation goes a long way.<span>${icon("coin")} ${profile?.balance.toLocaleString() || 0} ${esc(currency)}</span></div><div class="item-grid">${items()
+  return `<div class="notice">${icon("shield")}<span>Weapons, armor, and collectible adornments are now available.</span>${button("Browse equipment", "gear-shop", "primary compact")}</div>${locationNote("shop")}<div class="shop-balance">Good preparation goes a long way.<span>${icon("coin")} ${profile?.balance.toLocaleString() || 0} ${esc(currency)}</span></div><div class="item-grid">${items()
     .map(
       (entry) =>
         `<article class="item-card">${glyph(text(entry, "effect").includes("heal") ? "tide" : text(entry, "effect") === "tame" ? "spirit" : "leaf")}<div><span class="eyebrow">${esc(entry.effect)}</span><h3>${esc(entry.name)}</h3><p>${esc(entry.description)}</p><small class="subtle">In satchel: ${profile?.inventory[text(entry, "id")] || 0}</small></div>${button(`${number(entry, "price")} ${currency} ${icon("arrow")}`, `buy:${esc(entry.id)}`, "secondary compact", !profile || profile.balance < number(entry, "price"))}</article>`,
@@ -1559,11 +1660,11 @@ function settingsPanel() {
   )
     .map(
       ([action, code]) =>
-        `<div class="setting-row"><span>${action[0].toUpperCase() + action.slice(1)}</span>${button(esc(code.replace("Key", "").replace("Left", "")), `rebind:${action}`, "keybinding")}</div>`,
+        `<div class="setting-row"><span>${action.startsWith("ability") ? `Ability ${action.slice(7)}` : action[0].toUpperCase() + action.slice(1)}</span>${button(esc(code.replace("Key", "").replace("Digit", "").replace("Left", "")), `rebind:${action}`, "keybinding")}</div>`,
     )
     .join(
       "",
-    )}</div><p class="subtle">Drag / Q / R: orbit camera · Scroll: zoom<br />1–6: abilities · T / right-click: auto attack · Tab / Shift+Tab: cycle targets · Esc: clear target · Space: dash · Alt: jump<br />Ctrl+1–4: companion moves · Shift+1–3: switch Pokémon · G: attack · H: follow<br />C: team · P: Pokédex · B: bag · J: journal · M: map</p>${button("Reset preferences", "reset-settings", "secondary compact")}${performanceMarkup()}</div></div>`;
+    )}</div><p class="subtle">Drag / Q / R: orbit camera · Scroll: zoom<br />1–6: abilities · T / right-click: auto attack · Tab / Shift+Tab: cycle targets · Esc: clear target · Space: jump · Alt: dash<br />Ctrl+1–4: companion moves · Shift+1–3: switch Pokémon · G: attack · H: follow<br />C: team · P: Pokédex · B: bag · J: journal · M: map</p>${button("Reset preferences", "reset-settings", "secondary compact")}${performanceMarkup()}</div></div>`;
 }
 function creditsPanel() {
   return `<div class="credits-lead">${icon("leaf")}<h3>Leave a little room<br />for wonder.</h3><p>A fantasy adventure with Pokémon companions, built around friendship, exploration, and a shared island.</p></div><div class="two-columns"><div><h3>Art & world</h3><p>Original island composition, interface, visual effects, and creature identities.</p><p>Modular player characters, hairstyles, clothing and animations by Quaternius (CC0). Weapons and village characters by Kay Lousberg (KayKit Adventurers, CC0). <a href="/legal/CHARACTER_CREDITS.txt" target="_blank" rel="noreferrer">Character sources and modifications</a>. <a href="/character-studio.html" target="_blank" rel="noreferrer">Preview the character studio</a>. Wildlife and scenery by Quaternius: Ultimate Monsters, Ultimate Modular Men, Stylized Nature MegaKit, Medieval Village MegaKit, Medieval Village, Fantasy Props MegaKit, Ultimate Stylized Nature and Pirate Kit. Additional nature and castle props by Kenney. Licensed CC0. Local asset details and license copies are included in the project’s asset manifest.</p></div><div><h3>Sound & technology</h3><p>Music by RandomMind and troubadour. Nature recordings by Thimras, LokiF, RandomMind, AntumDeluge and Kresiek The Furry. Effects by Kenney, rubberduck, artisticdude, bart, Fantozzi/qubodup and Peludo/RNAn. All sourced under CC0, edited and mixed for the game. Creature voices are fantasy effects, not official Pokémon cries. <a href="/legal/AUDIO_CREDITS.txt" target="_blank" rel="noreferrer">Full audio credits and sources</a>. <a href="/sound-studio.html" target="_blank" rel="noreferrer">Visit the sound studio</a>.</p><p>Rendered with Babylon.js. Multiplayer powered by Colyseus. Built with TypeScript and Vite.</p><p>The working title and in-game currency are configurable. Pokémon models and characters belong to Nintendo, Creatures Inc. and GAME FREAK inc. Model source: Pokémon 3D API. These assets are not covered by the CC0 environment license.</p><p><a href="/legal/SOFTWARE_LICENSES.txt" target="_blank" rel="noreferrer">Software license notices</a> · <a href="/inspect.html" target="_blank" rel="noreferrer">Creature atelier</a> · <a href="/world-tour.html" target="_blank" rel="noreferrer">Explore the regions</a></p></div></div><div class="notice">${icon("journal")}<span><strong>Your first field notes</strong><br />Choose a starter. Visit the expedition board. Head out toward the meadow. Press Tab to target an enemy, T or right-click to auto attack and 1–6 for class abilities; G sends your companion; weaken it, then press F to attempt taming.</span></div>`;
@@ -1576,6 +1677,83 @@ async function handleAction(action: string) {
   const [name, ...parts] = action.split(":");
   const value = parts.join(":");
   switch (name) {
+    case "gear-shop":
+      gearTab = "shop";
+      gearPreviewId = undefined;
+      openPanel("gear");
+      break;
+    case "gear-slot":
+      if (GEAR_SLOTS.includes(value as GearSlot)) {
+        gearSlot = value as GearSlot;
+        gearPreviewId = undefined;
+        if (gearTab === "collectibles") gearTab = "owned";
+        renderPanel(false);
+      }
+      break;
+    case "gear-tab":
+      if (["owned", "shop", "collectibles"].includes(value)) {
+        gearTab = value as GearTab;
+        gearPreviewId = undefined;
+        renderPanel(false);
+      }
+      break;
+    case "gear-preview":
+      if (GEAR[value]) {
+        gearPreviewId = value;
+        renderPanel(false);
+      }
+      break;
+    case "gear-buy":
+      send("gearBuy", { item: value });
+      break;
+    case "gear-equip":
+      if (GEAR[value]) {
+        gearPreviewId = undefined;
+        send("gearEquip", { slot: GEAR[value].slot, item: value });
+      }
+      break;
+    case "gear-remove":
+      gearPreviewId = undefined;
+      send("gearEquip", { slot: value, item: null });
+      break;
+    case "gear-claim":
+      send("gearClaim", { item: value });
+      break;
+
+    case "skill-equip": {
+      if (!profile) return;
+      const slot = Number(
+        document.querySelector<HTMLSelectElement>(`#skill-slot-${value}`)
+          ?.value,
+      );
+      if (Number.isInteger(slot) && slot >= 0 && slot < 6)
+        send("combatLoadout", {
+          ...placeSkill(combatLoadout(profile), value, slot),
+        });
+      break;
+    }
+    case "skill-clear": {
+      if (!profile) return;
+      const next = combatLoadout(profile),
+        slots = [...next.slots];
+      slots[Number(value)] = null;
+      send("combatLoadout", { ...next, slots });
+      break;
+    }
+    case "skill-style": {
+      if (!profile) return;
+      send("combatLoadout", {
+        ...combatLoadout(profile),
+        layout:
+          document.querySelector<HTMLSelectElement>("#skill-layout")!.value,
+        labels:
+          document.querySelector<HTMLInputElement>("#skill-labels")!.checked,
+      });
+      break;
+    }
+    case "combat-reset":
+      send("combatReset");
+      break;
     case "dex-reward":
       send("dexReward", { count: Number(value) });
       break;
@@ -1878,12 +2056,8 @@ window.addEventListener(
           "Escape",
           "Tab",
           "Space",
-          "Digit1",
-          "Digit2",
-          "Digit3",
-          "Digit4",
-          "Digit5",
-          "Digit6",
+          "AltLeft",
+          "AltRight",
           "KeyT",
           "KeyG",
           "KeyH",
@@ -1891,6 +2065,9 @@ window.addEventListener(
           "KeyB",
           "KeyJ",
           "KeyM",
+          "KeyP",
+          "KeyK",
+          "KeyI",
         ];
         if (
           reserved.includes(event.code) ||
@@ -1903,6 +2080,7 @@ window.addEventListener(
         }
         settings.keybinds[binding] = event.code;
         saveSettings();
+        refreshActionBar();
       }
       binding = null;
       renderPanel();
@@ -1964,6 +2142,8 @@ window.addEventListener(
       return;
     }
     const panelKey: Record<string, Panel> = {
+      KeyI: "gear",
+      KeyK: "skills",
       KeyP: "pokedex",
       KeyC: "collection",
       KeyB: "inventory",

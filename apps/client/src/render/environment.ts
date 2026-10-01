@@ -150,14 +150,12 @@ function assembleEnvironment(
     if (!terrain.nearPath(x, z, 4))
       place("Rock_Medium_1", x, z, 2 + (i % 3) * 0.4, a);
   }
-  for (const p of PLACES.filter((p) => p.kind !== "landmark")) {
+  const storyPlaceIds = new Set(STORY_PLACES.map((place) => place.id));
+  for (const p of PLACES.filter(
+    (place) => place.kind !== "landmark" && !storyPlaceIds.has(place.id),
+  )) {
     const label = createWorldLabel(scene, p.name);
-    label.mesh.position.set(
-      p.x,
-      terrainHeight(p.x, p.z) +
-        (STORY_PLACES.some((npc) => npc.id === p.id) ? 2.5 : 4.2),
-      p.z,
-    );
+    label.mesh.position.set(p.x, terrainHeight(p.x, p.z) + 4.2, p.z);
   }
   dressBiomes(scenery);
   const inlandWater = createInlandWater(scene);

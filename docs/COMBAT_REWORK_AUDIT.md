@@ -6,7 +6,7 @@ Scope: hero combat, enemy attacks, character presentation, and a dash for every 
 
 - Heroes have server-owned windup, release, and impact stages. Melee hits resolve during the swing; Firebolt travels after release. Meteor and Frost Nova damage enemies around the release location. Passive Pokémon are excluded from collateral damage.
 - Movement interrupts Firebolt and Meteor before release. Stuns, guard, and dash interrupt unfinished attacks. Released spells continue travelling. Interrupted casts use a short retry delay. Death and sanctuary entry clear pending attacks.
-- Space dashes in the facing/movement direction for every class, with a 4.2-second cooldown and a 190ms dodge window. Alt jumps. The server sweeps dash movement in small steps against existing world and creature collision, and preserves arena boundaries.
+- Alt dashes in the facing/movement direction for every class, with a 4.2-second cooldown and a 190ms dodge window. Space jumps. The server sweeps dash movement in small steps against existing world and creature collision, and preserves arena boundaries.
 - Enemy kits include fast claws, wider heavy cleaves, committed rushes, aimed ranged bolts, and boss cones, lines, and ground impacts. Aimed directions are fixed at windup. Monsters close distance faster and alternate attack cadence.
 - Shared snapshots drive the cast bar, charging runes, character actions, cooldowns, and attack footprints. Damage numbers and hit reactions follow confirmed server impacts.
 

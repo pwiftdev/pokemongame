@@ -4,6 +4,8 @@ import clips from "./hero-clips.json";
 
 export function combatMotion(classId: ClassId, abilityId?: string, combo = 0) {
   const ability = ABILITIES[abilityId ?? ""];
+  if (ability?.effect === "stealth" || ability?.mobility === "blink")
+    return { clip: "Spellcast_Raise", duration: 0.45, impact: 0.05 };
   if (ability?.effect === "guard" || ability?.effect === "evasion")
     return { clip: "Block", duration: 0.45, impact: 0.05 };
   if (ability?.effect === "heal" || abilityId === "challenge")
@@ -49,6 +51,8 @@ export function combatMotion(classId: ClassId, abilityId?: string, combo = 0) {
     whirlwind: 2,
     sweep: 1,
     eviscerate: 2,
+    "fan-of-knives": 2,
+    shockwave: 1,
   };
   const spin = abilityId === "whirlwind";
   return {
@@ -95,7 +99,8 @@ export function impactDelay(
   hero: boolean,
 ) {
   const ability = ABILITIES[abilityId ?? ""];
-  if (["guard", "heal", "evasion"].includes(ability?.effect ?? "")) return 0;
+  if (["guard", "heal", "evasion", "stealth"].includes(ability?.effect ?? ""))
+    return 0;
   if (abilityId === "frostbolt") return windup + 0.15;
   if (hero && ability && ability.range <= 5) return windup + 0.02;
   return windup + projectileDuration(abilityId, distance);

@@ -113,6 +113,7 @@ export class DuelSystem {
       p.duelHp = 180;
       p.cast = undefined;
       p.dash = undefined;
+      p.mobility = undefined;
       p.dx = p.dz = 0;
       p.petTarget = undefined;
       if (p.pet) {
@@ -171,6 +172,7 @@ export class DuelSystem {
         if (!p || p.duelId !== duel.id) continue;
         p.cast = undefined;
         p.dash = undefined;
+        p.mobility = undefined;
         p.duelId = undefined;
         p.combatUntil = 0;
         p.auto = undefined;

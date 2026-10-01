@@ -1,3 +1,5 @@
+import { applyGearVisuals } from "./gear-visuals";
+import type { GearState } from "../../../../packages/shared/gear";
 import { attachEquipment, holdEquipment } from "./equipment";
 import {
   Color3,
@@ -157,6 +159,7 @@ export async function loadAvatarLibrary(scene: Scene) {
       classId: ClassId,
       settings: Appearance = DEFAULT_APPEARANCE,
       armed = true,
+      gear: GearState["equipped"] = {},
     ) {
       const appearance = normalizeAppearance(settings),
         race = RACES[appearance.race];
@@ -228,6 +231,14 @@ export async function loadAvatarLibrary(scene: Scene) {
         equipment.meshes,
       );
       actor.meshes.push(...equipment.meshes);
+      const releaseGear = applyGearVisuals(
+        scene,
+        id,
+        actor.root,
+        nodes,
+        actor.meshes,
+        gear,
+      );
       if (appearance.race === "orc") {
         const head = actor.meshes.find((m) => m.name.includes("Avatar:Head"));
         const bone = joint("Head");
@@ -273,6 +284,7 @@ export async function loadAvatarLibrary(scene: Scene) {
         height: race.height * appearance.height,
         dispose() {
           releaseGrip();
+          releaseGear();
           equipment.dispose();
           actor.dispose();
           for (const material of owned) material.dispose(false, false);

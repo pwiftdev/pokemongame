@@ -16,14 +16,14 @@ describe("procedural Pokémon rigs", () => {
     scene.dispose();
     engine.dispose();
   });
-  it("provides eleven nonempty motions and shared primitive geometry for every species", () => {
+  it("provides fourteen nonempty motions and shared primitive geometry for every species", () => {
     const engine = new NullEngine(),
       scene = new Scene(engine),
       library = createPokemonPlaceholders(scene);
     for (const p of Object.values(POKEMON)) {
       const actor = library.create(p.id, p.id, p.modelScale),
         clips = pokemonMotion(actor.root, scene, p.locomotion);
-      expect(clips).toHaveLength(11);
+      expect(clips).toHaveLength(14);
       expect(
         clips.every((clip) => clip.targetedAnimations.length >= 4),
         p.id,
@@ -45,4 +45,25 @@ describe("procedural Pokémon rigs", () => {
     scene.dispose();
     engine.dispose();
   });
+});
+
+it("animates static models at world scale and avoids duplicate authored clips", () => {
+  const engine = new NullEngine(),
+    scene = new Scene(engine);
+  const model = new TransformNode("static model", scene),
+    body = new TransformNode("body", scene);
+  model.scaling.setAll(1000);
+  model.parent = body;
+  const clips = pokemonMotion(model, scene, "floating", body, 2, ["Idle"]);
+  expect(clips.some((c) => c.name.endsWith(":Idle"))).toBe(false);
+  expect(clips.every((c) => c.targetedAnimations.length === 3)).toBe(true);
+  const position = clips
+    .find((c) => c.name.endsWith(":Walk"))!
+    .targetedAnimations.find((t) => t.animation.targetProperty === "position")!;
+  const values = position.animation.getKeys().map((k) => k.value.y);
+  expect(Math.max(...values)).toBeLessThan(0.5);
+  expect(Math.min(...values)).toBeGreaterThan(0);
+  for (const clip of clips) clip.dispose();
+  scene.dispose();
+  engine.dispose();
 });

@@ -1,6 +1,7 @@
 import { POKEMON_MODELS } from "../roster";
 export { POKEMON_MODELS } from "../roster";
 import { createAnimationMixer } from "./animation-mixer";
+import { addBodyMotion } from "./creature-body-motion";
 import { pokemonMotion } from "./pokemon-motion";
 import { createPokemonPlaceholders } from "./pokemon-placeholder";
 import { POKEMON } from "../../../../packages/shared/pokemon";
@@ -26,37 +27,15 @@ export const EVOLVED_MODELS = [
   "Dragon_Evolved",
   "Glub_Evolved",
 ] as const;
-export type Motion =
-  | "idle-variant"
-  | "run"
-  | "attack-alt"
-  | "special"
-  | "sleep"
-  | "idle"
-  | "move"
-  | "attack"
-  | "hit"
-  | "defeat"
-  | "celebrate";
-const CLIPS: Record<Motion, string[]> = {
-  "idle-variant": ["Idle_Variant", "Idle"],
-  run: ["Run", "Fast_Flying", "Walk", "model_skeleton|001run"],
-  "attack-alt": ["Attack_Alt", "Headbutt", "Bite_InPlace"],
-  special: ["Special", "Punch", "Bite_InPlace"],
-  sleep: ["Sleep", "Idle"],
-  idle: ["Idle", "Flying_Idle", "model_skeleton|001aidle"],
-  move: ["Walk", "Fast_Flying", "Run", "model_skeleton|001run"],
-  attack: [
-    "Bite_InPlace",
-    "Bite_Front",
-    "Headbutt",
-    "Punch",
-    "model_skeleton|001fight_b",
-  ],
-  hit: ["HitRecieve", "HitReact", "model_skeleton|001fight_d"],
-  defeat: ["Death", "No", "model_skeleton|001ko"],
-  celebrate: ["Dance", "Yes", "Flying_Idle", "model_skeleton|001jump_s"],
-};
+import {
+  CREATURE_CLIPS,
+  creatureClip,
+  loopMotion,
+  motionDuration,
+  type Motion,
+} from "./creature-clips";
+import { creatureSeed } from "../../../../packages/shared/creature-motion";
+export type { Motion } from "./creature-clips";
 export async function loadCreatures(
   scene: Scene,
   onReady?: (meshes: AbstractMesh[]) => void,
@@ -77,43 +56,56 @@ export async function loadCreatures(
         ? placeholders.create(name.toLowerCase(), id, height)
         : library.create(name, id, height, true);
       const holder = new TransformNode(`${id}:holder`, scene);
-      actor.root.parent = holder;
+      const motionRoot = new TransformNode(`${id}:motion`, scene);
+      motionRoot.parent = holder;
+      actor.root.parent = motionRoot;
       const meshes = [...actor.meshes];
       let disposed = false;
       let animated = true;
-      if (pokemon)
+      const phase = creatureSeed(id);
+      function prepareAnimations() {
+        motionRoot.position.setAll(0);
+        motionRoot.rotation.setAll(0);
+        motionRoot.scaling.setAll(1);
+        if (!pokemon) return;
+        const authored = actor.animations.map((a) => a.name.split(":").at(-1)!);
+        for (const group of actor.animations)
+          addBodyMotion(group, motionRoot, "Authored", "biped", height);
         actor.animations.push(
-          ...pokemonMotion(actor.root, scene, pokemon?.locomotion),
+          ...pokemonMotion(
+            actor.root,
+            scene,
+            pokemon.locomotion,
+            motionRoot,
+            height,
+            authored,
+          ),
         );
+      }
+      prepareAnimations();
       let mixer = createAnimationMixer(scene, actor.animations);
       let current: Motion = "idle";
       const clips = new Map<Motion, string>();
       function indexClips() {
         clips.clear();
-        for (const motion of Object.keys(CLIPS) as Motion[]) {
-          const group = actor.animations.find((a) =>
-            CLIPS[motion].some((clip) => a.name.endsWith(`:${clip}`)),
-          );
-          if (group) clips.set(motion, group.name.split(":").at(-1)!);
+        const names = actor.animations.map((a) => a.name.split(":").at(-1)!);
+        for (const motion of Object.keys(CREATURE_CLIPS) as Motion[]) {
+          const clip = creatureClip(names, motion);
+          if (clip) clips.set(motion, clip);
         }
       }
       indexClips();
-      const animate = (next: Motion, duration?: number) => {
+      const animate = (next: Motion, duration?: number, restart = false) => {
         current = next;
         if (!animated) return;
         const clip = clips.get(next);
         if (!clip) return;
         mixer.play(
           clip,
-          [
-            "idle",
-            "idle-variant",
-            "move",
-            "run",
-            "celebrate",
-            "sleep",
-          ].includes(next),
-          duration,
+          loopMotion(next),
+          duration ?? motionDuration(next, phase),
+          restart,
+          phase,
         );
       };
       animate("idle");
@@ -127,10 +119,8 @@ export async function loadCreatures(
               actor.dispose();
               actor = library.create(name, id, height, true);
               placeholder = false;
-              actor.root.parent = holder;
-              actor.animations.push(
-                ...pokemonMotion(actor.root, scene, pokemon?.locomotion),
-              );
+              actor.root.parent = motionRoot;
+              prepareAnimations();
               mixer = createAnimationMixer(scene, actor.animations);
               indexClips();
               meshes.splice(0, meshes.length, ...actor.meshes);
@@ -156,7 +146,9 @@ export async function loadCreatures(
         setDetail(distance: number) {
           const near = distance < 48;
           if (animated && !near) mixer.stop();
+          const resume = !animated && near;
           animated = near;
+          if (resume) animate(current);
           if (placeholder)
             for (const mesh of meshes) {
               if (mesh.name.endsWith(":mesh"))

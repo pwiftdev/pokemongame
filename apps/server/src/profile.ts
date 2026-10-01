@@ -1,3 +1,5 @@
+import { normalizeGear, validGear } from "../../../packages/shared/gear.js";
+import { validLoadout } from "../../../packages/shared/skillbook.js";
 import {
   normalizeAppearance,
   validAppearance,
@@ -14,6 +16,9 @@ import {
 import { heroMaxHp } from "../../../packages/shared/hero.js";
 import type { Profile } from "../../../packages/shared/types.js";
 export function validateProfile(profile: Profile) {
+  if (!validGear(profile)) throw new Error("Invalid equipment.");
+  if (profile.combat && !validLoadout(profile, profile.combat))
+    throw new Error("Invalid ability loadout.");
   if (profile.appearance && !validAppearance(profile.appearance))
     throw new Error("Invalid character appearance.");
   if (profile.classId && !CLASS_IDS.includes(profile.classId))
@@ -101,9 +106,15 @@ export function normalizeProfile(profile: Profile): Profile {
     if (!profile.pokedex.caught.includes(c.species))
       profile.pokedex.caught.push(c.species);
   }
-  profile.heroHp ??= heroMaxHp(profile);
+  normalizeGear(profile);
+  profile.heroHp = Math.min(
+    profile.heroHp ?? heroMaxHp(profile),
+    heroMaxHp(profile),
+  );
   profile.waystones ??= ["waystone-town"];
   for (const id of profile.waystones)
     profile.quests[`attune:${id.replace("waystone-", "")}`] = 1;
+  if (profile.combat && !validLoadout(profile, profile.combat))
+    profile.combat = undefined;
   return profile;
 }

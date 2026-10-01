@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="preload" as="image" href="/logo.png" fetchpriority="high" />
     <meta name="theme-color" content="#060b26" />
     <meta
       name="description"
@@ -37,13 +38,22 @@
       aria-busy="true"
     >
       <div class="boot-content">
-        <h1 id="boot-heading">POKEMON</h1>
+        <h1 id="boot-heading">
+          <img
+            src="/logo.png"
+            alt="World of Pokémon"
+            width="800"
+            height="800"
+            fetchpriority="high"
+          />
+        </h1>
         <progress
           id="boot-progress"
           aria-label="Loading Pokémon"
           max="1"
           value="0"
         ></progress>
+        <div id="boot-brand-actions" class="brand-actions"></div>
         <div id="boot-recovery" hidden>
           <p id="boot-current" role="status"></p>
           <button id="boot-retry" class="primary" type="button">

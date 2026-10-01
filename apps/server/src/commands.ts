@@ -1,3 +1,4 @@
+import { GEAR_SLOTS } from "../../../packages/shared/gear.js";
 import {
   RACE_IDS,
   BODY_IDS,
@@ -174,6 +175,24 @@ export const commandSchema = z.discriminatedUnion("kind", [
   z.object({ ...kind("claim"), quest: id }).strict(),
   z.object({ ...kind("acceptQuest"), quest: id }).strict(),
   z.object({ ...kind("interact"), place: id }).strict(),
+  z
+    .object({
+      ...kind("combatLoadout"),
+      slots: z.array(id.nullable()).length(6),
+      layout: z.enum(["row", "split"]),
+      labels: z.boolean(),
+    })
+    .strict(),
+  z.object(kind("combatReset")).strict(),
+  z.object({ ...kind("gearBuy"), item: id }).strict(),
+  z
+    .object({
+      ...kind("gearEquip"),
+      slot: z.enum(GEAR_SLOTS),
+      item: id.nullable(),
+    })
+    .strict(),
+  z.object({ ...kind("gearClaim"), item: id }).strict(),
   z.object({ ...kind("practiceReset") }).strict(),
   z.object({ ...kind("duel"), target: z.string().uuid() }).strict(),
   z.object({ ...kind("duelAccept"), id: z.string().uuid() }).strict(),

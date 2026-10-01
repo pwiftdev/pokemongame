@@ -1,3 +1,8 @@
+import type { Profile } from "../../../../packages/shared/types";
+import {
+  equippedAbilities,
+  combatLoadout,
+} from "../../../../packages/shared/skillbook";
 import {
   RESOURCES,
   abilityUnlocked,
@@ -25,16 +30,27 @@ export function actionBarMarkup(
   classId: ClassId,
   level: number,
   capsules: number,
+  profile?: Profile,
+  bindings: Record<string, string> = {},
 ) {
-  const abilities = heroClass(classId).abilities;
-  return `<div class="action-slots">${abilities
+  const abilities = profile
+    ? equippedAbilities(profile)
+    : heroClass(classId).abilities.slice(0, 6);
+  const style = profile
+    ? combatLoadout(profile)
+    : { layout: "row", labels: true };
+  return `<div class="action-slots ${style.layout === "split" ? "split-slots" : ""} ${style.labels ? "" : "hide-skill-names"}">${abilities
     .map((a, i) => {
+      if (!a)
+        return `<button class="ability empty-skill" data-action="panel:skills" aria-label="Choose a skill for slot ${i + 1}"><span class="slot-face"><span>+</span><kbd>${i + 1}</kbd></span><span class="ability-name">Skillbook</span></button>`;
       const locked = !abilityUnlocked(a, level);
       return slot(
         `ability:${i}`,
         a.id,
         `ability:${a.id}`,
-        String(i + 1),
+        (bindings[`ability${i + 1}`] ?? String(i + 1))
+          .replace("Digit", "")
+          .replace("Key", ""),
         a.name,
         {
           cls: locked ? "locked" : "",
@@ -45,7 +61,7 @@ export function actionBarMarkup(
     })
     .join(
       "",
-    )}</div><div class="action-slots utility">${slot("dash", "dash", "dash", "SPACE", "Dash", { cls: "dash-ability" })}${slot("tame", "catch", "catch", "F", "Catch", { cls: "tame-ability", badge: `<b class="count">${capsules}</b>` })}</div>`;
+    )}</div><div class="action-slots utility">${slot("dash", "dash", "dash", "ALT", "Dash", { cls: "dash-ability" })}${slot("tame", "catch", "catch", "F", "Catch", { cls: "tame-ability", badge: `<b class="count">${capsules}</b>` })}</div>`;
 }
 export interface SlotState {
   /** Seconds until usable, from a cooldown or the global cooldown. */

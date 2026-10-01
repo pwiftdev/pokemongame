@@ -10,12 +10,12 @@ test("HUD docks stay separate and menus remain reachable across desktop sizes an
     [1920, 1080, 1],
     [1440, 900, 1],
     [1280, 720, 1],
+    [1440, 600, 1],
     [1024, 768, 1],
     [800, 600, 1],
     [1280, 720, 1.25],
     [800, 600, 1.25],
   ]) {
-    await page.setViewportSize({ width, height });
     await page.locator('.hud-top [data-action="panel:settings"]').click();
     await page.locator('[data-setting="scale"]').evaluate((element, value) => {
       (element as HTMLInputElement).value = String(value);
@@ -23,7 +23,19 @@ test("HUD docks stay separate and menus remain reachable across desktop sizes an
       element.dispatchEvent(new Event("change", { bubbles: true }));
     }, scale);
     await page.keyboard.press("Escape");
+    await page.setViewportSize({ width, height });
     await page.waitForTimeout(100);
+    await page.locator("#combat-log").evaluate((element) => {
+      element.innerHTML =
+        '<p class="out">Your Ambush hits Cragclaw for 90.</p><p class="reward">+55 PD · Field experience earned</p>';
+      element.classList.add("active");
+    });
+    if (await page.locator("#combat-log").isVisible()) {
+      const log = await page.locator("#combat-log").boundingBox();
+      const party = await page.locator(".party-dock").boundingBox();
+      expect(log!.y + log!.height).toBeLessThan(party!.y - 8);
+      expect(log!.x).toBeCloseTo(party!.x, 0);
+    }
     const layout = await page.evaluate(() => {
       const selectors = [
         ".party-dock",
@@ -77,7 +89,36 @@ test("HUD docks stay separate and menus remain reachable across desktop sizes an
         `${label}: ${first} overlaps ${second}`,
       ).toBe(true);
     }
+    await page.locator("#chat").evaluate((element) => {
+      element.classList.add("recent");
+      element.querySelector(".chat-log")!.innerHTML = Array.from(
+        { length: 20 },
+        () =>
+          '<p class="chat-line"><strong>Explorer</strong><span>Meet me by the arena for a duel.</span></p>',
+      ).join("");
+    });
+    for (const open of [false, true]) {
+      if (open) {
+        await page.locator("#world").focus();
+        await page.keyboard.press("Enter");
+        await expect(page.locator("#chat")).toHaveClass(/open/);
+      }
+      const chat = await page.locator("#chat").boundingBox();
+      expect(chat!.x, `${label}: chat left`).toBeGreaterThanOrEqual(0);
+      expect(chat!.y, `${label}: chat top`).toBeGreaterThanOrEqual(0);
+      expect(chat!.x + chat!.width).toBeLessThanOrEqual(width + 1);
+      expect(chat!.y + chat!.height).toBeLessThanOrEqual(height + 1);
+      for (const [selector, rect] of Object.entries(layout))
+        expect(
+          chat!.x + chat!.width <= rect.left ||
+            rect.right <= chat!.x ||
+            chat!.y + chat!.height <= rect.top ||
+            rect.bottom <= chat!.y,
+          `${label}: ${open ? "open" : "recent"} chat overlaps ${selector}`,
+        ).toBe(true);
+    }
     await page.screenshot({ path: `evidence/ui-layout-${width}-${scale}.png` });
+    await page.keyboard.press("Escape");
     await page.locator('.quick-nav [data-action="panel:pokedex"]').click();
     const panel = page.locator(".panel-pokedex");
     await expect(panel).toBeVisible();

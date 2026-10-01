@@ -34,7 +34,13 @@ export function createAnimationMixer(scene: Scene, groups: AnimationGroup[]) {
       group.setWeightForAllAnimatables(layer.weight / Math.max(0.001, total));
   });
   return {
-    play(clip: string, loop = true, duration?: number, restart = false) {
+    play(
+      clip: string,
+      loop = true,
+      duration?: number,
+      restart = false,
+      phase = 0,
+    ) {
       const group = clips.get(clip);
       if (!group) return 0;
       const fps = group.targetedAnimations[0]?.animation.framePerSecond ?? 30;
@@ -49,6 +55,11 @@ export function createAnimationMixer(scene: Scene, groups: AnimationGroup[]) {
       group.stop();
       group.enableBlending = false;
       group.start(true, duration ? seconds / duration : 1);
+      if (loop && phase)
+        group.goToFrame(
+          group.from +
+            (group.to - group.from) * Math.max(0, Math.min(1, phase)),
+        );
       group.setWeightForAllAnimatables(initial);
       layers.set(group, {
         weight: initial,

@@ -18,10 +18,21 @@ test("designed loader appears before the game module and adapts to small screens
   );
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.locator("#boot-screen")).toBeVisible();
-  await expect(page.locator("#boot-heading")).toHaveText("POKEMON");
+  await expect(page.locator("#boot-heading")).toHaveAccessibleName(
+    "World of Pokémon",
+  );
   await expect(page.locator("#boot-progress")).toBeVisible();
   await expect(page.locator("#boot-recovery")).toBeHidden();
-  await expect(page.locator("#boot-screen img")).toHaveCount(0);
+  await expect(page.locator("#boot-heading img")).toHaveAttribute(
+    "src",
+    "/logo.png",
+  );
+  await expect(
+    page.locator("#boot-brand-actions [data-copy-wop]"),
+  ).toBeDisabled();
+  await expect(page.locator("#boot-brand-actions")).toContainText(
+    "CA coming soon",
+  );
   for (const width of [1440, 768, 390]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
@@ -37,6 +48,24 @@ test("designed loader appears before the game module and adapts to small screens
   release();
   await expect(page.locator("#start")).toBeEnabled({ timeout: 60000 });
   await expect(page.locator("#boot-screen")).toBeHidden();
+  await expect(page.locator(".wordmark img")).toHaveAttribute(
+    "src",
+    "/logo.png",
+  );
+  await expect(
+    page.locator("#title-brand-actions [data-copy-wop]"),
+  ).toBeDisabled();
+  const social = page.locator("#title-brand-actions .brand-social");
+  await expect(social).toHaveAttribute("href", "https://x.com/Play_WoP");
+  await expect(social).toHaveAttribute("rel", "noopener noreferrer");
+  for (const width of [1440, 800]) {
+    await page.setViewportSize({ width, height: 900 });
+    const actions = await page.locator("#title-brand-actions").boundingBox();
+    const logo = await page.locator(".wordmark").boundingBox();
+    expect(actions!.x).toBeGreaterThanOrEqual(logo!.x + logo!.width);
+    expect(actions!.x + actions!.width).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: `evidence/brand-title-${width}.png` });
+  }
 });
 
 test("entry waits for the final Pokémon model, portraits and a rendered world", async ({
@@ -91,7 +120,9 @@ test("a missing startup asset blocks entry and retry reloads safely", async ({
   await expect(page.locator("#boot-current")).toContainText(
     "Some game files could not load",
   );
-  await expect(page.locator("#boot-heading")).toHaveText("POKEMON");
+  await expect(page.locator("#boot-heading")).toHaveAccessibleName(
+    "World of Pokémon",
+  );
   broken = false;
   await page
     .getByRole("button", { name: "Retry loading", exact: true })

@@ -108,6 +108,17 @@
   display: none;
 }
 
+@container game-hud (max-width: 760px) {
+  .account-pill {
+    height: 42px;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  .account-pill small {
+    display: none;
+  }
+}
+
 /* $WOP panel */
 .wop-hero {
   display: flex;
@@ -201,26 +212,40 @@
 }
 
 /* Chat */
-/* Right side, between the minimap and the menu buttons. */
 .chat {
   position: absolute;
-  right: var(--wop-hud-x);
-  bottom: 206px;
+  right: 0;
+  bottom: calc(100% + 12px);
   width: min(var(--rail), 340px);
   pointer-events: none;
   z-index: 5;
+  --chat-height: min(220px, max(48px, calc(100cqh - 620px)));
+}
+@container game-hud (max-width: 1240px) or (max-height: 650px) {
+  .chat {
+    right: calc(100% + 12px);
+    bottom: 0;
+    width: min(340px, calc(100cqw - 100% - var(--rail) - 64px));
+    --chat-height: 180px;
+  }
+}
+@container game-hud (max-width: 1000px) {
+  .chat {
+    width: min(340px, calc(100cqw - 100% - 260px));
+  }
+}
+@container game-hud (max-width: 760px) {
+  .chat {
+    width: min(340px, calc(100cqw - 100% - 236px));
+  }
 }
 @container game-hud (max-height: 650px) {
-  /* The menu buttons move up beside the minimap on short screens. */
   .chat {
-    bottom: 24px;
-  }
-  .chat-log {
-    max-height: 96px;
+    --chat-height: 72px;
   }
 }
 .chat-log {
-  max-height: 150px;
+  max-height: min(150px, var(--chat-height));
   overflow: hidden;
   padding: 6px 9px;
   font-size: 14px;
@@ -237,7 +262,7 @@
   transition: opacity 0.15s;
 }
 .chat.open .chat-log {
-  max-height: 220px;
+  max-height: var(--chat-height);
   overflow-y: auto;
   pointer-events: auto;
   background: color-mix(in srgb, var(--wop-deep) 80%, transparent);
@@ -348,9 +373,6 @@
   }
   .title-content h1 {
     margin: 14px 0 18px;
-  }
-  .title-content > p {
-    display: none;
   }
   .entry-form {
     margin-top: 6px;

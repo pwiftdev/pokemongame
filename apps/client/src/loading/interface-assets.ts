@@ -11,7 +11,7 @@ export async function prepareInterface() {
     url: `/assets/portraits/${name}.png`,
     name: `${name.replaceAll("_", " ")} portrait`,
   }));
-  images.push({ url: "/assets/ui/world-mark.svg", name: "World emblem" });
+  images.push({ url: "/logo.png", name: "World of Pokémon logo" });
   images.push(
     ...["BaseColor", "Normal"].map((kind) => ({
       url: `/assets/village/T_Brick_${kind}.png`,

@@ -1,3 +1,4 @@
+import { mountBrandActions } from "../ui/brand-actions";
 import { startup } from "./progress";
 let frame = 0;
 let unsubscribe: (() => void) | undefined;
@@ -20,6 +21,9 @@ function showRecovery(message: string) {
   document.querySelector("#boot-current")!.textContent = message;
 }
 export function mountLoadingScreen() {
+  mountBrandActions(
+    document.querySelector<HTMLElement>("#boot-brand-actions")!,
+  );
   startup.begin();
   const queue = () => {
     if (!frame) frame = requestAnimationFrame(paint);

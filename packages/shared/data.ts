@@ -40,8 +40,10 @@ export interface Ability {
     | "stun"
     | "evasion"
     | "poison"
-    | "taunt";
+    | "taunt"
+    | "stealth";
   description: string;
+  mobility?: "blink" | "charge" | "shadowstep";
   /** Class resource spent on use. */
   cost?: number;
   /** Class resource gained when the ability lands. */

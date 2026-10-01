@@ -77,9 +77,9 @@ describe("expanded RPG world", () => {
     const p = profile();
     for (const classId of CLASS_IDS) {
       p.classId = classId;
-      expect(CLASSES[classId].abilities).toHaveLength(6);
+      expect(CLASSES[classId].abilities.length).toBeGreaterThanOrEqual(8);
       expect(abilityFor(p, 0)).toEqual(CLASSES[classId].abilities[0]);
-      expect(["guard", "evasion"]).toContain(abilityFor(p, 3).effect);
+      expect(() => abilityFor(p, 3)).toThrow();
     }
     expect(() => abilityFor(p, 0, true)).toThrow("Deploy");
   });

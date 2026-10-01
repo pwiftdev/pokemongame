@@ -24,6 +24,7 @@ export const GUEST_LIMIT_MESSAGE =
 export const WALLET_COMMANDS = [
   "tame",
   "buy",
+  "gearBuy",
   "evolve",
   "dexReward",
   "duel",

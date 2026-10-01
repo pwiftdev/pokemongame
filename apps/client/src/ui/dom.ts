@@ -8,6 +8,11 @@ export function updateMarkup(element: Element, markup: string) {
 
 export function preservePanel(root: Element) {
   const scroll = root.querySelector(".panel-body")?.scrollTop ?? 0;
+  const scrollAreas = new Map(
+    [...root.querySelectorAll<HTMLElement>("[data-panel-scroll]")].map(
+      (element) => [element.dataset.panelScroll, element.scrollTop],
+    ),
+  );
   const focused = document.activeElement as HTMLElement | null;
   const attribute = focused?.hasAttribute("data-focus")
     ? "data-focus"
@@ -23,6 +28,10 @@ export function preservePanel(root: Element) {
       element.open = opened.includes(element.dataset.detail);
     const body = root.querySelector(".panel-body");
     if (body) body.scrollTop = scroll;
+    for (const element of root.querySelectorAll<HTMLElement>(
+      "[data-panel-scroll]",
+    ))
+      element.scrollTop = scrollAreas.get(element.dataset.panelScroll) ?? 0;
     if (key)
       root
         .querySelector<HTMLElement>(`[${attribute}="${CSS.escape(key)}"]`)

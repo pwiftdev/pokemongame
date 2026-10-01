@@ -102,7 +102,7 @@ export const QUESTS: Quest[] = [
     id: "first-friend",
     name: "A friend for the road",
     description:
-      "Choose your class and first Pokémon. Open the journal to collect your expedition allowance.",
+      "Choose your first Pokémon and begin your journey together. Collect your expedition allowance in the journal.",
     key: "starter",
     goal: 1,
     reward: 40,
@@ -137,7 +137,7 @@ export const QUESTS: Quest[] = [
     description:
       "Defeat two monsters in the Overgrown Orchard, west of Rowan. Return to him when it is safe.",
     dialogue:
-      "Clear two of the monsters nesting among the orchard roots. Your weapon does the fighting; your Pokémon can assist. The road itself is safe.",
+      "Clear two of the monsters nesting among the orchard roots. Send your Pokémon in with G and command their moves with Ctrl+1–4. Fight alongside them with your own abilities. The road itself is safe.",
     completion:
       "That gives the Pokémon room to return. Now, about my missing supplies…",
     supplies: { potion: 2 },

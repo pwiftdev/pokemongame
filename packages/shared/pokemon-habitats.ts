@@ -75,6 +75,8 @@ export function pokemonAvailable(species: string, now: number) {
   );
 }
 export type PokemonActivity =
+  | "wander"
+  | "look"
   | "rest"
   | "sleep"
   | "drink"

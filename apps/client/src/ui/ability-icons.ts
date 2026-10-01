@@ -58,6 +58,15 @@ const glyphs: Record<string, string> = {
   fist: '<path d="M7 11V6.5a1.5 1.5 0 0 1 3 0V10m0-4a1.5 1.5 0 0 1 3 0v4m0-3a1.5 1.5 0 0 1 3 0v4m0-2a1.5 1.5 0 0 1 3 0v4c0 4-3 7-7 7h-1c-3 0-5-2-6-5l-1.5-3.5A1.5 1.5 0 0 1 7 11"/>',
 };
 const ABILITY_GLYPHS: Record<string, string> = {
+  blink: "hex",
+  vanish: "eye",
+  shadowstep: "wind",
+  charge: "axe",
+  "shield-charge": "shieldBash",
+  "heroic-throw": "sword",
+  "arcane-barrage": "stars",
+  "fan-of-knives": "claws",
+  shockwave: "whirl",
   slash: "sword",
   "shield-strike": "shieldBash",
   rally: "heartPlus",
@@ -87,6 +96,7 @@ const ABILITY_GLYPHS: Record<string, string> = {
   auto: "fist",
 };
 const AURA_GLYPHS: Record<AuraId, string> = {
+  stealth: "eye",
   guard: "shield",
   evasion: "wind",
   enrage: "rage",

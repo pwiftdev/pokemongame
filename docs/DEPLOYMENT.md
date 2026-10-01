@@ -26,6 +26,12 @@ Heroku terminates HTTPS. The app trusts exactly one proxy hop for client IPs, re
 
 The 2026-09-30 Pokémon and interface releases use Heroku’s Sources and Builds APIs to deploy a workspace archive without creating a Git commit. The archive excludes local environment files, evidence, dependencies and build output. Heroku installs dependencies and rebuilds the app before the release phase. See [Build and release using the API](https://devcenter.heroku.com/articles/build-and-release-using-the-api).
 
+## Keeping computers and deployments in sync
+
+A workspace deployment does not upload uncommitted changes to GitHub. A later deployment from another computer can replace those changes if its checkout does not contain them. This happened when release v20 deployed GitHub commit `f6d6aae` without the local gear, class-combat, and mob upgrades from v19.
+
+Before deploying from another computer, first commit and push the combined changes with explicit approval, then pull that same GitHub revision on the other computer. Check `git status --short --branch` and `git log -1 --oneline` on both devices. Back up uncommitted work before pulling overlapping changes; do not discard it or force-push to resolve the mismatch.
+
 For a later release from an explicitly approved commit, deploy and inspect the app:
 
 ```sh
@@ -54,7 +60,7 @@ heroku pg:backups:schedules --app pokemon-dollars-play
 
 ## Configuration
 
-Set DATABASE*URL, PORT (2567 default), and ALLOWED_ORIGINS to exact permitted origins. $WOP conversion and payouts use the `WOP*\*`and`SOLANA_RPC_URL`variables in docs/WALLET_AND_WOP.md; keep`WOP_TREASURY_SECRET` in Heroku config vars only. A same-origin production browser uses its own origin; a separately hosted frontend needs VITE_SERVER_URL set at build time. Keep database credentials on the server. No admin/reward command is exposed.
+Set `DATABASE_URL`, `PORT` (2567 default), and `ALLOWED_ORIGINS` to exact permitted origins. $WOP conversion and payouts use the `WOP_*` and `SOLANA_RPC_URL` variables in docs/WALLET_AND_WOP.md; keep `WOP_TREASURY_SECRET` in Heroku config vars only. A same-origin production browser uses its own origin; a separately hosted frontend needs VITE_SERVER_URL set at build time. Keep database credentials on the server. No admin/reward command is exposed.
 
 A reverse proxy must terminate TLS and forward all HTTP routes plus WebSocket upgrades to the Node service. Example Nginx location inside your own TLS-enabled server block:
 

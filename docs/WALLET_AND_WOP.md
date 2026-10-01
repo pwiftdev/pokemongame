@@ -1,14 +1,20 @@
 # Wallets, guests, $WOP and chat
 
+## Public contract button
+
+`VITE_WOP_CA` supplies the public Solana contract address for both the title-screen and loading-screen copy buttons. Leave it empty until the address is confirmed; both buttons stay disabled and show “CA coming soon”. Once supplied, set it to the same mint used for `WOP_MINT` and rebuild the client. This public display setting does not enable token conversion. Never place a private key in a `VITE_` variable.
+
 ## Sign-in
 
 The title screen offers **Connect Phantom**, **Connect Solflare** or **Play as guest**. Wallets are detected from their injected providers (`window.phantom.solana`, `window.solflare`); no wallet SDK is bundled. A missing wallet opens its download page.
 
 Wallet sign-in follows the Sign-In With Solana message format:
 
-1. `POST /api/wallet/challenge { address }` returns a one-time message with the site's domain, a nonce and a five-minute expiry. Nonces live in server memory, so a restart only asks the player to sign again.
+1. `POST /api/wallet/challenge { address }` returns a one-time message built by `@solana/wallet-standard-util`, with the site's domain, a nonce and a five-minute expiry. The statement uses ASCII (`World of Pokemon`): accented branding such as `Pokémon` violates the SIWS statement grammar and causes Phantom to reject the signature request. Nonces live in server memory, so a restart only asks the player to sign again.
 2. The wallet signs the message (`signMessage`). This is not a transaction and costs nothing.
 3. `POST /api/wallet/session { address, nonce, signature, nickname?, guestToken? }` verifies the ed25519 signature with Node's crypto, consumes the nonce and returns the same 256-bit session token used by guests.
+
+A new title-screen wallet sign-in without a nickname starts as Explorer; the character creator can rename it. Guest linking ignores repeat clicks while a wallet prompt is open. Cancellation leaves the guest account intact. Raw signature bytes from extension contexts and Phantom signature objects are supported.
 
 A returning wallet gets a fresh token (older sessions for that wallet stop working). A new wallet upgrades the guest account in this browser, keeping its progress; otherwise a new account is created with the chosen name. The wallet is stored in `players.wallet` (unique) and on the profile. Linking from inside the game (the wallet pill in the HUD) lifts guest limits immediately, without reconnecting.
 
@@ -16,8 +22,8 @@ A returning wallet gets a fresh token (older sessions for that wallet stop worki
 
 Accounts without a wallet are guests. The server enforces every limit; the client only mirrors them.
 
-- Movement stays inside Hearthwick and Sunpetal Meadows (`guestStep` in `packages/shared/access.ts`, applied to walking and dashing on the server and in client prediction). Waystone travel outside that area is refused.
-- Taming, the shop, evolution, Pokédex PD rewards, duels and the arena queue are refused (`WALLET_COMMANDS`).
+- Movement stays inside Hearthwick and Sunpetal Meadows (`guestStep` in `packages/shared/access.ts`, applied to walking and dashing on the server and in client prediction, plus server-authoritative Blink, Shadowstep, and Charge). Waystone travel outside that area is refused.
+- Taming, the shop (including equipment purchases), evolution, Pokédex PD rewards, duels and the arena queue are refused (`WALLET_COMMANDS`).
 - Guests can read chat but not post.
 - Guests can still fight the monsters in the meadow camps and follow the opening story.
 
@@ -66,3 +72,5 @@ The server trims and normalizes text, removes control and invisible characters, 
 
 - `npm test` covers signature checks, nonce reuse and expiry, wallet account creation, rotation and guest upgrade, the holding requirement, PD debit, retry safety, limits, payout transaction contents, confirmation and expiry refunds (against a mock Solana RPC), guest regions and chat filtering.
 - `npm run test:wallet` runs against a live server: guests stop at the Lanternwood border while wallet players cross it, guests cannot tame, duel, buy or chat, chat reaches the room and late joiners, links are refused, and a guest upgrades in place and can leave town without reconnecting.
+
+Browser regression tests in `tests/browser/wallet.spec.ts` exercise the actual Connect buttons with signed Phantom/Solflare provider fixtures and a strict sign-in statement check. They cover new accounts without a name, saved sessions, cancellation, repeated link clicks, and guest progress after linking. These fixtures do not automate an installed wallet extension.

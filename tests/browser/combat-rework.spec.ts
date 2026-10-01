@@ -8,7 +8,7 @@ import {
   enterMeleeRange,
 } from "./helpers";
 
-test("mage casts visibly, movement interrupts, and Space dashes", async ({
+test("mage casts visibly, movement interrupts, and Alt dashes", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -34,7 +34,7 @@ test("mage casts visibly, movement interrupts, and Space dashes", async ({
   await page.keyboard.up("s");
   await page.waitForTimeout(400);
   const before = (await metrics(page)).selfPosition;
-  await page.keyboard.press("Space");
+  await page.keyboard.press("Alt");
   await expect(page.locator('[data-action="dash"]')).toBeDisabled();
   await expect
     .poll(async () => {

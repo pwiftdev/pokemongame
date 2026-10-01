@@ -1,3 +1,4 @@
+import { wildMotion } from "./render/wild-presentation";
 import { createTrainingDummy } from "./render/training-dummy";
 import {
   isTraining,
@@ -130,6 +131,7 @@ interface Callbacks {
   onBoundary?: () => void;
 }
 interface Actor {
+  moveSpeed?: number;
   visual: CreatureActor;
   view: WildView;
   lastHp: number;
@@ -340,6 +342,10 @@ export async function createWorld(
         name: actor.view.nickname,
         pet: actor.view.companionName,
         appearance: actor.view.appearance,
+        equipment: actor.view.equipment,
+        gearMeshes: actor.trainer.meshes
+          .filter((m) => m.isEnabled() && m.metadata?.gear)
+          .map((m) => m.name),
         mood: actor.mood,
         nameVisible:
           actor.nameplate.mesh.isEnabled() && actor.nameplate.mesh.isVisible,
@@ -351,6 +357,13 @@ export async function createWorld(
       movementSpeed: Math.hypot(velocity.x, velocity.z),
       jumpHeight: jump,
       targetId,
+      targetPosition:
+        targetId && targets.has(targetId)
+          ? {
+              x: targets.get(targetId)!.view.x,
+              z: targets.get(targetId)!.view.z,
+            }
+          : undefined,
       cameraCollision: cameraCollision!.metrics(),
     }),
   });
@@ -359,7 +372,13 @@ export async function createWorld(
       if (activeCamera !== camera || !playing) return;
       const self = players.get(selfId);
       if (!self) return;
-      const trainerVisibility = bodyVisibility(camera.radius, 2.4, 3.8);
+      const trainerVisibility = Math.min(
+        bodyVisibility(camera.radius, 2.4, 3.8),
+        (self.view.stealthUntil ?? 0) >
+          serverTime + (time - receivedTime) * 1000
+          ? 0.22
+          : 1,
+      );
       for (const mesh of self.trainer.meshes)
         mesh.visibility = trainerVisibility;
       if (self.companion) {
@@ -399,7 +418,7 @@ export async function createWorld(
     const hit = landed(event.outcome ?? "hit");
     const victim = targets.get(event.target ?? "");
     if (hit && victim && victim.view.hp > 0) {
-      victim.visual.animate("hit");
+      victim.visual.animate("hit", 0.28, true);
       victim.holdUntil = time + 0.22;
       victim.hitUntil = time + 0.12;
     }
@@ -555,6 +574,8 @@ export async function createWorld(
           view.id === selfId,
           view.classId,
           normalizeAppearance(view.appearance),
+          true,
+          view.equipment,
         ),
         nameplate: createWorldLabel(scene, view.nickname, 3.3, {
           distance: 60,
@@ -574,6 +595,7 @@ export async function createWorld(
     }
     if (
       actor.view.classId !== view.classId ||
+      JSON.stringify(actor.view.equipment) !== JSON.stringify(view.equipment) ||
       appearanceKey(actor.view.appearance) !== appearanceKey(view.appearance)
     ) {
       disposeVisual(actor.trainer);
@@ -582,6 +604,8 @@ export async function createWorld(
         view.id === selfId,
         view.classId,
         normalizeAppearance(view.appearance),
+        true,
+        view.equipment,
       );
       actor.trainer.root.position.set(
         view.x,
@@ -715,9 +739,15 @@ export async function createWorld(
     keys.add(key);
     keys.add(event.code.toLowerCase());
     if (
-      [" ", "tab", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(
-        key,
-      )
+      [
+        " ",
+        "alt",
+        "tab",
+        "arrowup",
+        "arrowdown",
+        "arrowleft",
+        "arrowright",
+      ].includes(key)
     )
       event.preventDefault();
     if (event.repeat) return;
@@ -727,12 +757,16 @@ export async function createWorld(
     else if (matches("tame", "f")) callbacks.onTame();
     else if (key === "tab") cycleTarget(event.shiftKey);
     else if (key === "t" && targetId) callbacks.onAutoAttack?.(targetId);
-    else if (key === " ") requestDash();
-    else if (key === "alt" && jump === 0) {
-      event.preventDefault();
+    else if (key === "alt") requestDash();
+    else if (key === " " && jump === 0) {
       jumpVelocity = 5;
       callbacks.onJump?.();
-    } else if (/^[1-6]$/.test(key)) ability(Number(key) - 1);
+    } else {
+      const slot = Array.from({ length: 6 }, (_, i) => i).find((i) =>
+        matches(`ability${i + 1}`, String(i + 1)),
+      );
+      if (slot !== undefined) ability(slot);
+    }
   }
   function keyup(event: KeyboardEvent) {
     keys.delete(event.key.toLowerCase());
@@ -855,7 +889,7 @@ export async function createWorld(
       if (
         active &&
         (self?.view.hp ?? 0) > 0 &&
-        keys.has("1") &&
+        keys.has(bind("ability1", "1")) &&
         time >= nextHeldAttack
       ) {
         callbacks.onAbility(0, true);
@@ -1034,7 +1068,7 @@ export async function createWorld(
         view.z,
       );
       const delta = destination.subtract(visual.root.position);
-      if (delta.lengthSquared() > 0.02)
+      if (delta.x * delta.x + delta.z * delta.z > 0.0004)
         visual.root.rotation.y = turnTowards(
           visual.root.rotation.y,
           Math.atan2(delta.x, delta.z),
@@ -1044,8 +1078,27 @@ export async function createWorld(
         ? players.get(view.target)?.trainer.root.position
         : undefined;
       if (view.cast?.yaw !== undefined) visual.root.rotation.y = view.cast.yaw;
-      else if (focus && view.state === "attack")
-        visual.root.rotation.y = Math.atan2(focus.x - view.x, focus.z - view.z);
+      else if (focus && (view.state === "attack" || view.state === "alert"))
+        visual.root.rotation.y = turnTowards(
+          visual.root.rotation.y,
+          Math.atan2(focus.x - view.x, focus.z - view.z),
+          dt,
+        );
+      else if (
+        delta.x * delta.x + delta.z * delta.z <= 0.0004 &&
+        view.yaw !== undefined
+      )
+        visual.root.rotation.y = turnTowards(
+          visual.root.rotation.y,
+          view.yaw,
+          dt,
+        );
+      const speed =
+        (Math.hypot(delta.x, delta.z) * (1 - Math.exp(-dt * 9))) /
+        Math.max(0.001, dt);
+      actor.moveSpeed =
+        (actor.moveSpeed ?? speed) +
+        (speed - (actor.moveSpeed ?? speed)) * (1 - Math.exp(-dt * 10));
       visual.root.position = Vector3.Lerp(
         visual.root.position,
         destination,
@@ -1068,35 +1121,10 @@ export async function createWorld(
           0.6,
         );
       visual.root.setEnabled(view.hp > 0 || time < actor.holdUntil);
-      const charging =
-        view.cast?.charge && sharedNow >= view.cast.resolvesAt - 250;
-      if (time > actor.holdUntil && view.hp > 0)
-        visual.animate(
-          view.activity === "sleep"
-            ? "sleep"
-            : view.activity === "feed" || view.activity === "drink"
-              ? "idle-variant"
-              : charging
-                ? "run"
-                : view.state === "attack"
-                  ? "attack"
-                  : view.state === "chase" ||
-                      view.state === "roam" ||
-                      view.state === "retreat"
-                    ? "move"
-                    : "idle",
-          charging
-            ? 0.22
-            : view.cast
-              ? (view.cast.resolvesAt - (view.cast.startedAt ?? sharedNow)) /
-                1000
-              : delta.lengthSquared() > 0.02
-                ? Math.max(
-                    0.3,
-                    Math.min(1.5, 0.9 / Math.max(0.1, delta.length() * 9)),
-                  )
-                : undefined,
-        );
+      if (time > actor.holdUntil && view.hp > 0) {
+        const motion = wildMotion(view, actor.moveSpeed, sharedNow);
+        visual.animate(motion.motion, motion.duration);
+      }
     }
     for (const [id, actor] of players) {
       const root = actor.trainer.root;
@@ -1326,7 +1354,8 @@ export async function createWorld(
         if (view.id === selfId) {
           if (view.hp <= 0) predictedDash = undefined;
           const error = Math.hypot(position.x - view.x, position.z - view.z);
-          if (error > 3 || !playing) position = { x: view.x, z: view.z };
+          if (error > 3 || !playing || view.mobility)
+            position = { x: view.x, z: view.z };
           else if (error > 0.35) {
             position.x += (view.x - position.x) * 0.15;
             position.z += (view.z - position.z) * 0.15;
@@ -1548,6 +1577,16 @@ export async function createWorld(
         player.trainer.cancel();
         return;
       }
+      if (event.type === "mobility" && event.movement && player) {
+        const { from, to, duration } = event.movement;
+        player.trainer.action(duration ? "dash" : "attack", event.ability);
+        combatEffects.mobility(
+          event,
+          new Vector3(from.x, terrainHeight(from.x, from.z), from.z),
+          new Vector3(to.x, terrainHeight(to.x, to.z), to.z),
+        );
+        return;
+      }
       if (event.type === "dash" && player) {
         if (event.source === selfId && predictedDash) return;
         player.trainer.action("dash");
@@ -1644,13 +1683,13 @@ export async function createWorld(
           event.type !== "impact" &&
           !early &&
           (event.actor !== "hero" ||
-            ["guard", "heal", "evasion"].includes(
+            ["guard", "heal", "evasion", "stealth"].includes(
               ABILITIES[event.ability ?? ""]?.effect ?? "",
             ))
             ? source.action("attack", event.ability)
             : undefined;
         if (!("action" in source) && event.type !== "impact")
-          source.animate("attack");
+          source.animate("attack", undefined, true);
         const actor = player ?? wild;
         if (actor) {
           actor.holdUntil = time + 0.65;

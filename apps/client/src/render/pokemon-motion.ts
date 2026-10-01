@@ -8,6 +8,8 @@ import {
 } from "@babylonjs/core";
 import type { Locomotion } from "../../../../packages/shared/pokemon";
 
+import { addBodyMotion } from "./creature-body-motion";
+
 const CLIPS = [
   "Idle",
   "Idle_Variant",
@@ -20,11 +22,17 @@ const CLIPS = [
   "Death",
   "Dance",
   "Sleep",
+  "Feed",
+  "Look",
+  "Alert",
 ];
 export function pokemonMotion(
   root: TransformNode,
   scene: Scene,
   locomotion: Locomotion = "biped",
+  bodyRoot?: TransformNode,
+  height = 1.5,
+  existing: string[] = [],
 ) {
   const joints = root
     .getChildTransformNodes()
@@ -37,25 +45,29 @@ export function pokemonMotion(
         .replace(/_\d+$/, ""),
     }))
     .filter(({ name }) =>
-      /^(Head|Neck|LThigh|RThigh|LArm|RArm|Tail1|Tail2|TailA01|LEar[1]?|REar[1]?|Body|pivot)$/.test(
+      /^(Head|Neck|LThigh|RThigh|LArm|RArm|Tail[1-9]|TailA0[1-9]|Spine[1-4]|LFeelerA1|RFeelerA1|LEar[1]?|REar[1]?|Body|pivot)$/.test(
         name,
       ),
     );
-  return CLIPS.map((clip) => {
+  return CLIPS.filter((clip) => !existing.includes(clip)).map((clip) => {
     const group = new AnimationGroup(`${root.name}:${clip}`, scene);
     const moving = clip === "Walk" || clip === "Run",
       attacking = ["Bite_InPlace", "Attack_Alt", "Special"].includes(clip);
+    if (bodyRoot) addBodyMotion(group, bodyRoot, clip, locomotion, height);
     for (const { joint, name } of joints) {
+      if (bodyRoot && name === "pivot") continue;
       const base =
         joint.rotationQuaternion?.clone() ??
         Quaternion.FromEulerVector(joint.rotation);
       joint.rotationQuaternion = base.clone();
       const leg = /Thigh|Arm/.test(name),
         arm = /Arm/.test(name),
-        tail = /Tail/.test(name),
+        tail =
+          /Tail/.test(name) || (locomotion === "serpent" && /Spine/.test(name)),
         ear = /Ear/.test(name),
         head = /Head|Neck/.test(name),
         body = /Body|pivot/.test(name);
+      const chain = Number(name.match(/(\d+)$/)?.[1] ?? 0);
       const side = /^R/.test(name) ? Math.PI : 0,
         phase = side + (arm && locomotion === "quadruped" ? Math.PI : 0);
       const animation = new Animation(
@@ -77,7 +89,7 @@ export function pokemonMotion(
                 ? Math.sin(((t - 0.25) / 0.3) * Math.PI)
                 : -Math.sin(((t - 0.55) / 0.45) * Math.PI) * 0.12;
           let angle = tail
-            ? Math.sin(cycle - 0.6) * 0.13
+            ? Math.sin(cycle - chain * 0.45) * 0.09
             : ear
               ? Math.sin(cycle + 0.9) * 0.045
               : head
@@ -89,14 +101,15 @@ export function pokemonMotion(
               angle = Math.sin(cycle + phase) * (clip === "Run" ? 0.8 : 0.48);
             if (tail)
               angle =
-                Math.sin(cycle - 0.8) * (locomotion === "serpent" ? 0.6 : 0.25);
-            if (body) {
+                Math.sin(cycle - chain * 0.45) *
+                (locomotion === "serpent" ? 0.16 : 0.2);
+            if (body && !bodyRoot) {
               angle =
                 Math.sin(cycle) * (locomotion === "serpent" ? 0.12 : 0.045);
               axis = Vector3.Forward();
             }
           }
-          if (locomotion === "flying" && arm) {
+          if (locomotion === "flying" && (arm || /FeelerA1/.test(name))) {
             angle = Math.sin(cycle + side) * 0.6;
             axis = Vector3.Forward();
           }
@@ -116,8 +129,20 @@ export function pokemonMotion(
           }
           if (clip === "Dance")
             angle = Math.sin(cycle * 2 + phase) * (body ? 0.18 : 0.4);
-          if (clip === "Sleep")
-            angle = head ? 0.45 + breath * 0.025 : leg ? -0.8 : tail ? 0.4 : 0;
+          if (clip === "Sleep") {
+            angle = head ? 0.2 + breath * 0.025 : leg ? -0.35 : tail ? 0.08 : 0;
+            if (locomotion === "flying" && (arm || /FeelerA1/.test(name))) {
+              angle = Math.sin(cycle + side) * 0.1;
+              axis = Vector3.Forward();
+            }
+          }
+          if (clip === "Feed" && head)
+            angle = 0.18 + (1 - Math.cos(cycle * 2)) * 0.09;
+          if (clip === "Look" && head) {
+            angle = Math.sin(cycle) * 0.25;
+            axis = Vector3.Up();
+          }
+          if (clip === "Alert" && head) angle = -0.08 + breath * 0.018;
           if (clip === "Idle_Variant")
             angle = head
               ? Math.sin(cycle) * 0.4
@@ -131,7 +156,7 @@ export function pokemonMotion(
         }),
       );
       group.addTargetedAnimation(animation, joint);
-      if (body) {
+      if (body && !bodyRoot) {
         const position = joint.position.clone();
         const bob = new Animation(
           `${clip}:weight shift`,

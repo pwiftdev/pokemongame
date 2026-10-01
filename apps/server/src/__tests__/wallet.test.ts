@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import pg from "pg";
 import { getBase58Decoder } from "@solana/kit";
+import { parseSignInMessageText } from "@solana/wallet-standard-util";
 
 const baseUrl =
   process.env.DATABASE_URL ?? "postgresql://localhost:5432/pokemon_dollars";
@@ -82,6 +83,30 @@ afterAll(async () => {
 });
 
 describe("wallet sign-in", () => {
+  it("creates a standard sign-in message with an ASCII statement accepted by strict wallets", () => {
+    const user = keypair();
+    const now = Date.now();
+    const challenge = wallet.createChallenge(
+      user.address,
+      "https://play.example",
+      now,
+    );
+    const parsed = parseSignInMessageText(challenge.message);
+    expect(parsed).toMatchObject({
+      domain: "play.example",
+      address: user.address,
+      uri: "https://play.example",
+      version: "1",
+      chainId: "solana:mainnet",
+      nonce: challenge.nonce,
+    });
+    expect(parsed?.statement).toMatch(/^[\x20-\x7e]+$/);
+    expect(parsed?.statement).toContain("World of Pokemon");
+    expect(
+      Date.parse(parsed!.expirationTime!) - Date.parse(parsed!.issuedAt!),
+    ).toBe(300000);
+    expect(challenge.message).not.toContain("Pokémon");
+  });
   it("verifies a signed challenge exactly once", () => {
     const user = keypair();
     const challenge = wallet.createChallenge(
@@ -153,10 +178,30 @@ describe("wallet accounts", () => {
   });
   it("upgrades the current guest when the wallet is new", async () => {
     const guest = await db.session("Misty");
+    const { makeCreature } = await import("../gameplay.js");
+    const saved = await db.mutate(guest.profile.id, randomUUID(), (profile) => {
+      const creature = makeCreature("bulbasaur", 1);
+      profile.classId = "mage";
+      profile.creatures = [creature];
+      profile.team = [creature.id];
+      profile.active = creature.id;
+      profile.gear = {
+        owned: ["mage-weapon-1"],
+        equipped: { weapon: "mage-weapon-1" },
+      };
+      profile.combat = {
+        slots: ["firebolt", null, null, null, null, null],
+        layout: "split",
+        labels: false,
+      };
+    });
     const user = keypair();
     const linked = await db.walletSession(user.address, undefined, guest.token);
     expect(linked.linked).toBe(true);
     expect(linked.profile.id).toBe(guest.profile.id);
+    expect(linked.profile.gear).toEqual(saved.profile.gear);
+    expect(linked.profile.combat).toEqual(saved.profile.combat);
+    expect(linked.profile.creatures).toEqual(saved.profile.creatures);
     expect((await db.getProfile(guest.profile.id)).wallet).toBe(user.address);
     await expect(db.authenticate(guest.token)).rejects.toThrow();
     // A returning wallet keeps its own account; the guest stays separate.
@@ -168,6 +213,8 @@ describe("wallet accounts", () => {
     );
     expect(resumed.linked).toBe(false);
     expect(resumed.profile.id).toBe(guest.profile.id);
+    expect(resumed.profile.gear).toEqual(saved.profile.gear);
+    expect(resumed.profile.combat).toEqual(saved.profile.combat);
     expect((await db.authenticate(second.token)).wallet).toBeUndefined();
   });
 });

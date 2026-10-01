@@ -1,6 +1,8 @@
 import { icon } from "./icons";
 
 const menus = [
+  { id: "gear", glyph: "shield", label: "Gear", key: "I" },
+  { id: "skills", glyph: "sword", label: "Skills", key: "K" },
   { id: "collection", glyph: "team", label: "Team", key: "C" },
   { id: "pokedex", glyph: "journal", label: "Pokédex", key: "P" },
   { id: "inventory", glyph: "bag", label: "Bag", key: "B" },
@@ -18,5 +20,5 @@ export function adventureNavigation(active?: string) {
 }
 
 export function worldMark() {
-  return '<img class="world-mark" src="/assets/ui/world-mark.svg" alt="" width="44" height="44"/>';
+  return '<img class="world-mark" src="/logo.png" alt="" width="44" height="44"/>';
 }

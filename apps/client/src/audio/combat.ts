@@ -5,6 +5,9 @@ import type { CueId } from "./catalog";
 export function abilitySound(id?: string, impact = false): CueId {
   const move = POKEMON_MOVES[id ?? ""],
     ability = move ?? ABILITIES[id ?? ""];
+  if (id === "vanish" || id === "shadowstep") return "spirit";
+  if (id === "blink") return "magic";
+  if (id === "charge" || id === "shield-charge") return "dash";
   if (ability?.effect === "heal") return "heal";
   if (["guard", "evasion"].includes(ability?.effect ?? "")) return "guard";
   if (move?.type === "ice" || /frost|ice|blizzard/.test(id ?? ""))

@@ -1,5 +1,7 @@
+import { test } from "./database-fixture";
+import { combatHero } from "./combat-fixture";
 import { writeFile } from "node:fs/promises";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { begin, approachOrchard, enterMeleeRange, metrics } from "./helpers";
 test.use({ video: "on" });
 async function feel(page: Page) {
@@ -94,13 +96,25 @@ test("held weapon attacks alternate authored swings and preserve movement", asyn
 });
 test("frost and meteor have distinct readable effects without browser errors", async ({
   page,
+  request,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
   });
-  await begin(page, "Spell review", "squirtle", "new", "mage");
+  await combatHero(page, request, "mage", {
+    slots: [
+      "firebolt",
+      "frostbolt",
+      "meteor",
+      "barrier",
+      "blink",
+      "counterspell",
+    ],
+    layout: "row",
+    labels: true,
+  });
   await page.locator('[data-action="pet:passive"]').click();
   await approachOrchard(page);
   await page.keyboard.press("Tab");

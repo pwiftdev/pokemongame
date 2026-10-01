@@ -113,12 +113,12 @@ describe("class resources", () => {
     expect(resourceFromTaken("valor", 10, true)).toBe(11);
     expect(resourceFromTaken("energy", 10, false)).toBe(0);
   });
-  it("gives every class six abilities with builders, spenders and level unlocks", () => {
+  it("gives every class a growing skill library with builders and spenders", () => {
     for (const id of CLASS_IDS) {
       const abilities = CLASSES[id].abilities;
-      expect(abilities).toHaveLength(6);
-      expect(abilities.filter((a) => abilityUnlocked(a, 1))).toHaveLength(4);
-      expect(abilities.every((a) => abilityUnlocked(a, 3))).toBe(true);
+      expect(abilities.length).toBeGreaterThanOrEqual(8);
+      expect(abilities.filter((a) => abilityUnlocked(a, 1))).toHaveLength(1);
+      expect(abilities.every((a) => abilityUnlocked(a, 10))).toBe(true);
       expect(abilities.some((a) => a.cost)).toBe(true);
       expect(abilities.some((a) => a.interrupt || a.effect === "taunt")).toBe(
         true,
@@ -238,11 +238,11 @@ describe("ability eligibility", () => {
   const check = (id: string, view = self, gcd = 0) =>
     abilityAvailability(ABILITIES[id], view, target, 0, 100, false, 100, gcd);
   it("reports locks, resources, combo points and the global cooldown", () => {
-    expect(check("kick")).toBe("Unlocks at level 3");
+    expect(check("kick")).toBe("Unlocks at level 6");
     expect(check("stab")).toBe("Not enough Energy");
     expect(check("stab", { ...self, resource: 40 }, 500)).toBe("Recharging");
-    expect(check("evasion", self, 500)).toBe("Ready");
-    expect(check("eviscerate", { ...self, level: 2, resource: 40 })).toBe(
+    expect(check("evasion", { ...self, level: 7 }, 500)).toBe("Ready");
+    expect(check("eviscerate", { ...self, level: 5, resource: 40 })).toBe(
       "Build combo points first",
     );
     expect(check("stab", { ...self, resource: 40 })).toBe("Ready");

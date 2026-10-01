@@ -32,6 +32,8 @@ export interface Creature {
 export interface Profile {
   /** Solana wallet address; absent for guest accounts. */
   wallet?: string;
+  gear?: import("./gear").GearState;
+  combat?: import("./skillbook").CombatLoadout;
   appearance?: Appearance;
   classId?: ClassId;
   heroHp?: number;
@@ -51,6 +53,10 @@ export interface Profile {
   pokedex?: { seen: string[]; caught: string[]; rewards: number[] };
 }
 export interface PlayerView {
+  equipment?: import("./gear").GearState["equipped"];
+  skillLevel?: number;
+  stealthUntil?: number;
+  mobility?: import("./class-mobility").HeroMobility;
   practice?: import("./training").PracticeView;
   appearance?: Appearance;
   companionName?: string;
@@ -100,6 +106,7 @@ export interface PlayerView {
   burnUntil?: number;
 }
 export interface WildView {
+  yaw?: number;
   shiny?: boolean;
   activity?: import("./pokemon-habitats").PokemonActivity;
   id: string;
@@ -140,6 +147,11 @@ export interface WorldSnapshot {
   roomId: string;
 }
 export interface GameEvent {
+  movement?: {
+    from: { x: number; z: number };
+    to: { x: number; z: number };
+    duration: number;
+  };
   capture?: {
     success: boolean;
     shakes: number;

@@ -39,6 +39,7 @@ export async function metrics(page: Page) {
           __islandMetrics: {
             selfPosition: { x: number; z: number };
             cameraAlpha: number;
+            targetPosition?: { x: number; z: number };
             frameMs: number[];
             fps: number;
             meshes: number;
@@ -50,6 +51,25 @@ export async function metrics(page: Page) {
       ).__islandMetrics,
   );
 }
+async function steer(
+  page: Page,
+  pressed: string[],
+  dx: number,
+  dz: number,
+  alpha: number,
+) {
+  const f = { x: -Math.cos(alpha), z: -Math.sin(alpha) };
+  const forward = dx * f.x + dz * f.z,
+    right = dx * f.z - dz * f.x;
+  const keys: string[] = [];
+  if (Math.abs(forward) > 0.3) keys.push(forward > 0 ? "w" : "s");
+  if (Math.abs(right) > 0.3) keys.push(right > 0 ? "d" : "a");
+  for (const key of pressed)
+    if (!keys.includes(key)) await page.keyboard.up(key);
+  for (const key of keys)
+    if (!pressed.includes(key)) await page.keyboard.down(key);
+  return keys;
+}
 export async function walk(page: Page, x: number, z: number) {
   const start = Date.now();
   let pressed: string[] = [];
@@ -60,17 +80,7 @@ export async function walk(page: Page, x: number, z: number) {
       const dx = x - m.selfPosition.x,
         dz = z - m.selfPosition.z;
       if (Math.hypot(dx, dz) < 1.5) return;
-      const f = { x: -Math.cos(m.cameraAlpha), z: -Math.sin(m.cameraAlpha) };
-      const forward = dx * f.x + dz * f.z,
-        right = dx * f.z - dz * f.x;
-      const keys: string[] = [];
-      if (Math.abs(forward) > 0.8) keys.push(forward > 0 ? "w" : "s");
-      if (Math.abs(right) > 0.8) keys.push(right > 0 ? "d" : "a");
-      for (const key of pressed)
-        if (!keys.includes(key)) await page.keyboard.up(key);
-      for (const key of keys)
-        if (!pressed.includes(key)) await page.keyboard.down(key);
-      pressed = keys;
+      pressed = await steer(page, pressed, dx, dz, m.cameraAlpha);
       await page.waitForTimeout(100);
     }
     throw new Error(
@@ -93,24 +103,20 @@ export async function approachOrchard(page: Page) {
 
 export async function enterMeleeRange(page: Page) {
   const start = Date.now();
-  await page.keyboard.down("w");
-  await page.keyboard.down("a");
+  let pressed: string[] = [];
   try {
-    while (Date.now() - start < 5000) {
-      const detail = await page
-        .locator("#target-card small")
-        .first()
-        .textContent();
-      const distance = detail?.match(/(\d+)m away/);
-      if (distance && Number(distance[1]) <= 2) return;
+    while (Date.now() - start < 10000) {
+      const m = await metrics(page);
+      if (!m.targetPosition) throw new Error("No selected creature");
+      const dx = m.targetPosition.x - m.selfPosition.x,
+        dz = m.targetPosition.z - m.selfPosition.z;
+      if (Math.hypot(dx, dz) <= 2.4) return;
+      pressed = await steer(page, pressed, dx, dz, m.cameraAlpha);
       await page.waitForTimeout(80);
     }
-    throw new Error(
-      "Could not approach the selected orchard monster within melee range",
-    );
+    throw new Error("Could not reach the moving target within melee range");
   } finally {
-    await page.keyboard.up("w");
-    await page.keyboard.up("a");
+    for (const key of pressed) await page.keyboard.up(key);
   }
 }
 

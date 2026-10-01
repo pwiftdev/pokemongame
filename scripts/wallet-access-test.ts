@@ -1,46 +1,12 @@
+import { createWalletSession } from "./wallet-client.js";
 /**
  * Network check for wallet sign-in, guest limits and chat against a running
  * server: npm start, then npm run test:wallet.
  */
-import { generateKeyPairSync, sign } from "node:crypto";
-import { getBase58Decoder } from "@solana/kit";
 import type { ChatMessage } from "../packages/shared/chat.js";
 import { regionBiome } from "../packages/shared/regions.js";
-import type { Profile } from "../packages/shared/types.js";
 import { base, delay, NetworkPlayer, until } from "./network-client.js";
 
-function keypair() {
-  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const raw = Buffer.from(publicKey.export({ format: "jwk" }).x!, "base64url");
-  return {
-    address: getBase58Decoder().decode(raw),
-    sign: (message: string) =>
-      sign(null, Buffer.from(message, "utf8"), privateKey).toString("base64"),
-  };
-}
-async function post(path: string, body: unknown) {
-  const response = await fetch(`${base}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: base },
-    body: JSON.stringify(body),
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.message);
-  return result;
-}
-async function walletSession(nickname?: string, guestToken?: string) {
-  const user = keypair();
-  const challenge = await post("/api/wallet/challenge", {
-    address: user.address,
-  });
-  return (await post("/api/wallet/session", {
-    address: user.address,
-    nonce: challenge.nonce,
-    signature: user.sign(challenge.message),
-    ...(nickname ? { nickname } : {}),
-    ...(guestToken ? { guestToken } : {}),
-  })) as { token: string; profile: Profile; linked: boolean };
-}
 function chatInbox(player: NetworkPlayer) {
   const messages: ChatMessage[] = [];
   player.room.onMessage("chat", (message: ChatMessage) =>
@@ -73,7 +39,7 @@ const check = (name: string, ok: boolean, detail?: unknown) => {
 const guest = await NetworkPlayer.create("Guest Scout", undefined, "new");
 const guestChat = chatInbox(guest);
 await guest.starter();
-const walletAuth = await walletSession("Wallet Scout");
+const walletAuth = await createWalletSession(base, "Wallet Scout");
 check("new wallet account", walletAuth.profile.wallet !== undefined);
 const holder = await NetworkPlayer.create(
   "unused",
@@ -92,8 +58,9 @@ guest.errors.length = 0;
 guest.send({ kind: "tame", target: "none", item: "capsule" });
 guest.send({ kind: "duel", target: holder.profile.id });
 guest.send({ kind: "buy", item: "potion", quantity: 1 });
+guest.send({ kind: "gearBuy", item: "mage-weapon-1" });
 await until(
-  () => guest.errors.length >= 3,
+  () => guest.errors.length >= 4,
   4000,
   () => String(guest.errors),
 );
@@ -135,7 +102,7 @@ check(
 );
 await late.close();
 
-const linked = await walletSession(undefined, guest.token);
+const linked = await createWalletSession(base, undefined, guest.token);
 check(
   "guest upgrades in place",
   linked.linked && linked.profile.id === guest.profile.id,

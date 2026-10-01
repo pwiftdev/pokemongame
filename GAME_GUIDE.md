@@ -98,7 +98,7 @@ Combat controls now support holding **1** for repeated primary attacks and brief
 
 ## Combat controls
 
-Space dashes for every class; Alt jumps. Dash briefly avoids attacks and recharges in 4.2 seconds. Use it sideways against aimed bolts or through a dangerous moment in a melee windup.
+Space jumps; Alt dashes for every class. Dash briefly avoids attacks and recharges in 4.2 seconds. Use it sideways against aimed bolts or through a dangerous moment in a melee windup.
 
 ## Combat systems
 

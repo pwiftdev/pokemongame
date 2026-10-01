@@ -1,3 +1,4 @@
+import { equippedAbilities } from "../../../packages/shared/skillbook.js";
 import { POKEMON } from "../../../packages/shared/pokemon.js";
 import { recordPokemon } from "../../../packages/shared/pokedex.js";
 import {
@@ -13,7 +14,6 @@ import {
   questProgress,
   recordQuestEvent,
 } from "../../../packages/shared/story.js";
-import { heroClass } from "../../../packages/shared/classes.js";
 import { heroHp, heroMaxHp } from "../../../packages/shared/hero.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -266,7 +266,7 @@ export function useItem(p: Profile, itemId: string, inCombat: boolean) {
 export function abilityFor(p: Profile, slot: number, companion = false) {
   const ability = companion
     ? ABILITIES[activeCreature(p).moves[slot]]
-    : heroClass(p.classId).abilities[slot];
+    : equippedAbilities(p)[slot];
   if (!ability) throw new Error("Ability is unavailable.");
   return ability;
 }

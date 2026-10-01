@@ -6,7 +6,7 @@ import { escape as esc } from "./icons";
 
 export function companionBarMarkup(profile: Profile) {
   const creature = profile.creatures.find((c) => c.id === profile.active);
-  return `<div class="pet-bar-label">COMPANION <button class="text-button" data-action="greet-companion" title="Greet your Pokémon while resting">Greet</button><span>Ctrl + 1–4</span></div><div class="action-slots">${(
+  return `<div class="pet-bar-label">POKÉMON <button class="text-button" data-action="greet-companion" title="Greet your Pokémon while resting">Greet</button><span>Ctrl + 1–4</span></div><div class="action-slots">${(
     creature?.moves ?? []
   )
     .map((id, i) => {
