@@ -2158,9 +2158,12 @@ window.addEventListener(
   true,
 );
 window.addEventListener("beforeunload", () => {
+  connected = false;
+  playing = false;
+  room?.removeAllListeners();
+  void room?.leave();
   audio.dispose();
   world?.dispose();
-  void room?.leave();
 });
 
 document.title = `${title} — ${BRAND.subtitle}`;

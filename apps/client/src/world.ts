@@ -1333,6 +1333,7 @@ export async function createWorld(
   return {
     dash: requestDash,
     setSnapshot(value, id) {
+      if (disposed) return;
       collisionCreatures = value.wilds;
       serverTime = value.time;
       receivedTime = time;
@@ -1374,6 +1375,7 @@ export async function createWorld(
         }
     },
     setProfile(value) {
+      if (disposed) return;
       guest = isGuest(value);
       storyWorld.setProfile(value);
       const active = value.creatures.find(
@@ -1455,6 +1457,7 @@ export async function createWorld(
       players.get(selfId)?.trainer.cancel();
     },
     handleEvent(event) {
+      if (disposed) return;
       const player = players.get(event.source ?? "");
       const wild = targets.get(event.source ?? "");
       const early =
@@ -1764,6 +1767,7 @@ export async function createWorld(
       }
     },
     dispose() {
+      if (disposed) return;
       disposed = true;
       engine.stopRenderLoop();
       window.removeEventListener("keydown", keydown);
